@@ -6,8 +6,8 @@
   "description": "Claude Code mods by Awesome Media: live UI for the terminal and the desktop Code tab.",
   "plugins": [
     {
-      "name": "am-context-car",
-      "source": "./mods/am-context-car",
+      "name": "am-context-bar",
+      "source": "./mods/am-context-bar",
       "description": "A context and usage card above the prompt: segmented context bar, session/weekly limits, model, thinking, compactions, git branch."
     }
   ]

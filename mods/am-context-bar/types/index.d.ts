@@ -21,7 +21,7 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'am-context-car': {
+    'am-context-bar': {
       isVisible: boolean
       snapshot: Snapshot | null
       effort: string | null

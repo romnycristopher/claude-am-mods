@@ -67,7 +67,7 @@ test('formats tokens and reset countdowns', async () => {
   expect(formatReset('2026-10-08T10:10:00Z', at)).toBe('1d 20h 20m')
 })
 
-test('/am-context-car toggles the card on every surface', async ($, on) => {
+test('/am-context-bar toggles the card on every surface', async ($, on) => {
   mock.clock(on, { now: Date.parse('2026-10-06T13:50:00Z') })
   mock.store(on)
   on('ui.render', ($, e) => {
@@ -86,14 +86,14 @@ test('/am-context-car toggles the card on every surface', async ($, on) => {
 
   const run = (args: string) =>
     $.command.run({
-      command: 'am-context-car',
+      command: 'am-context-bar',
       args,
       origin: { kind: 'composer' },
       presentation: { isFullscreen: false, columns: 100 },
     })
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const hidden = await $.ui.mount({ plugin: 'am-context-car', surface, ...BAND })
+    const hidden = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
     expect(await hidden.find({ type: 'Text', text: 'context' })).toBeUndefined()
     expect(await hidden.find({ type: 'Text', text: 'engine' })).toBeDefined()
     await hidden.unmount()
@@ -102,7 +102,7 @@ test('/am-context-car toggles the card on every surface', async ($, on) => {
   expect((await run('on')).text).toMatch(/shown/)
 
   for (const surface of ['terminal', 'desktop'] as const) {
-    const ui = await $.ui.mount({ plugin: 'am-context-car', surface, ...BAND })
+    const ui = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
     expect(await ui.find({ type: 'Text', text: 'context' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'mcp tools ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '52k' })).toBeDefined()

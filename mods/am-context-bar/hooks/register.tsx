@@ -3,13 +3,13 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Limit, Segment, Snapshot } from '../types'
 
-const COMMAND = 'am-context-car'
+const COMMAND = 'am-context-bar'
 
-const isVisible = atom({ plugin: 'am-context-car', key: 'isVisible' } as const, false)
-const snapshot = atom({ plugin: 'am-context-car', key: 'snapshot' } as const, null)
-const effort = atom({ plugin: 'am-context-car', key: 'effort' } as const, null)
-const compactions = atom({ plugin: 'am-context-car', key: 'compactions' } as const, 0)
-const now = atom({ plugin: 'am-context-car', key: 'now' } as const, 0)
+const isVisible = atom({ plugin: 'am-context-bar', key: 'isVisible' } as const, false)
+const snapshot = atom({ plugin: 'am-context-bar', key: 'snapshot' } as const, null)
+const effort = atom({ plugin: 'am-context-bar', key: 'effort' } as const, null)
+const compactions = atom({ plugin: 'am-context-bar', key: 'compactions' } as const, 0)
+const now = atom({ plugin: 'am-context-bar', key: 'now' } as const, 0)
 
 // The desktop context card's palette, keyed by the breakdown row's name.
 const COLORS: [RegExp, string][] = [

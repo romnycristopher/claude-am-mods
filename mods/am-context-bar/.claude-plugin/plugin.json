@@ -1,0 +1,11 @@
+{
+  "name": "am-context-bar",
+  "version": "0.1.0",
+  "description": "A context and usage card above the prompt: segmented context bar, session/weekly limits, model, thinking, compactions, git branch. Toggle with /am-context-bar.",
+  "author": {
+    "name": "romnycristopher"
+  },
+  "repository": "https://github.com/romnycristopher/claude-am-mods",
+  "license": "MIT",
+  "types": "./types/index.d.ts"
+}

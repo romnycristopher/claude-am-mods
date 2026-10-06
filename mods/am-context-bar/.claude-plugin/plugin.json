@@ -1,11 +1,37 @@
 {
   "name": "am-context-bar",
-  "version": "0.1.0",
-  "description": "A context and usage card above the prompt: segmented context bar, session/weekly limits, model, thinking, compactions, git branch. Toggle with /am-context-bar.",
+  "version": "0.2.0",
+  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git. /am-context-bar on | off | expand | collapse.",
   "author": {
     "name": "romnycristopher"
   },
   "repository": "https://github.com/romnycristopher/claude-am-mods",
   "license": "MIT",
-  "types": "./types/index.d.ts"
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "nearingAt": {
+      "type": "number",
+      "title": "Nearing dumb zone at (%)",
+      "description": "Context percentage where the count turns yellow.",
+      "default": 35,
+      "min": 1,
+      "max": 99
+    },
+    "dumbZoneAt": {
+      "type": "number",
+      "title": "Dumb zone starts at (%)",
+      "description": "Context percentage where the dumb zone starts; marked on the bar and the count turns orange.",
+      "default": 50,
+      "min": 1,
+      "max": 99
+    },
+    "compactSoonAt": {
+      "type": "number",
+      "title": "Compact soon at (%)",
+      "description": "Context percentage where the count turns red.",
+      "default": 85,
+      "min": 1,
+      "max": 99
+    }
+  }
 }

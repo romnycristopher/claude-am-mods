@@ -8,7 +8,7 @@
     {
       "name": "am-context-bar",
       "source": "./mods/am-context-bar",
-      "description": "A context and usage card above the prompt: segmented context bar, session/weekly limits, model, thinking, compactions, git branch."
+      "description": "A context card above the prompt, collapsed or expanded: zone-coloured token count with the dumb zone marked, breakdown by category, limits, model, thinking, compactions, git branch."
     }
   ]
 }

@@ -23,6 +23,7 @@ declare module 'claude-code' {
   interface PluginState {
     'am-context-bar': {
       isVisible: boolean
+      isExpanded: boolean
       snapshot: Snapshot | null
       effort: string | null
       compactions: number

@@ -1,0 +1,4 @@
+# Laid by the Claude Code engine when a mod loads
+mods/*/.claude-plugin/types/
+node_modules/
+.DS_Store

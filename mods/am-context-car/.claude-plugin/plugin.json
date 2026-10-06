@@ -1,0 +1,10 @@
+{
+  "name": "am-context-car",
+  "version": "0.1.0",
+  "description": "A context and usage card above the prompt: segmented context bar, session/weekly limits, model, thinking, compactions, git branch. Toggle with /am-context-car.",
+  "author": {
+    "name": "romnycristopher"
+  },
+  "repository": "https://github.com/romnycristopher/claude-am-mods",
+  "types": "./types/index.d.ts"
+}

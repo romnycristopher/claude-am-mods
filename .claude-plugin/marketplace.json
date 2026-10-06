@@ -1,0 +1,14 @@
+{
+  "name": "claude-am-mods",
+  "owner": {
+    "name": "romnycristopher"
+  },
+  "description": "Claude Code mods by Awesome Media: live UI for the terminal and the desktop Code tab.",
+  "plugins": [
+    {
+      "name": "am-context-car",
+      "source": "./mods/am-context-car",
+      "description": "A context and usage card above the prompt: segmented context bar, session/weekly limits, model, thinking, compactions, git branch."
+    }
+  ]
+}

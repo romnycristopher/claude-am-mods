@@ -6,5 +6,6 @@
     "name": "romnycristopher"
   },
   "repository": "https://github.com/romnycristopher/claude-am-mods",
+  "license": "MIT",
   "types": "./types/index.d.ts"
 }

@@ -46,3 +46,7 @@ claude --plugin-dir mods/am-context-car      # run a session with it loaded
 ```
 
 To add a mod: create `mods/<name>/` with its `.claude-plugin/plugin.json`, `hooks/hooks.json` and hooks module, then add an entry to `plugins` in the marketplace file.
+
+## License
+
+[MIT](LICENSE)

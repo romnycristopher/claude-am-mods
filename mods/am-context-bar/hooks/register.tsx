@@ -36,8 +36,19 @@ const colorOf = (segment: Segment, index: number): string => {
 // The SVG bars can't read theme keys, so they carry both palettes and pick by
 // the colour scheme the desktop draws in.
 const SVG_STYLE =
-  '<style>.t{fill:#EFEDE6}.d{fill:#C86E14;fill-opacity:.16}.h{stroke:#C9C4B6}.k{fill:#B4540A}.m{fill:#1C1B19}' +
-  '@media (prefers-color-scheme:dark){.t{fill:#34322D}.d{fill:#F59A52}.h{stroke:#5A574F}.k{fill:#F59A52}.m{fill:#EDEBE4}}</style>'
+  '<style>.t{fill:#EFEDE6}.d{fill:#C86E14;fill-opacity:.10}.h{stroke:#C9C4B6}.k{fill:#B4540A}.m{fill:#1C1B19}' +
+  '.z-clear{fill:#3FA34D}.z-nearing{fill:#D4A72C}.z-dumb{fill:#E07020}.z-compact{fill:#D63A2C}' +
+  '@media (prefers-color-scheme:dark){.t{fill:#34322D}.d{fill:#F59A52}.h{stroke:#5A574F}.k{fill:#F59A52}.m{fill:#EDEBE4}' +
+  '.z-clear{fill:#5CC172}.z-nearing{fill:#E3B341}.z-dumb{fill:#F08A3C}.z-compact{fill:#F0584A}}</style>'
+
+// The bar fills with the zone's colour, so it turns from green to red as the
+// window fills. In the SVG a part's colour "zone:<id>" is the class z-<id>
+// (light and dark); on the terminal the zone's theme key is used directly.
+// The usage percentage: bold, in the theme's calm blue (a periwinkle in the
+// default themes), the same in every zone so it is always easy to find.
+const PERCENT: Color = 'suggestion'
+
+export const zonePaint = (id: ZoneId): string => `zone:${id}`
 
 // ── Zones ──────────────────────────────────────────────────────────────────
 export type ZoneId = 'clear' | 'nearing' | 'dumb' | 'compact'
@@ -77,7 +88,49 @@ export const thresholdsFrom = (options: PluginOptions | undefined): Thresholds =
   return t.nearing < t.dumb && t.dumb < t.compact ? t : DEFAULT_THRESHOLDS
 }
 
+// ── Layouts ────────────────────────────────────────────────────────────────
+// The collapsed card comes in three shapes, picked in /config (Layout) or with
+// /am-context-bar layout <name>: V1 three rows with a full-width bar, V2 two
+// rows with a short bar beside the count, V3 one row.
+export type Layout = 'three-rows' | 'two-rows' | 'one-row'
+export const LAYOUTS: Layout[] = ['three-rows', 'two-rows', 'one-row']
+const LAYOUT_NAMES: Record<string, Layout> = {
+  'three-rows': 'three-rows',
+  v1: 'three-rows',
+  'two-rows': 'two-rows',
+  v2: 'two-rows',
+  'one-row': 'one-row',
+  v3: 'one-row',
+}
+export const parseLayout = (value: unknown): Layout | undefined =>
+  typeof value === 'string' ? LAYOUT_NAMES[value.trim().toLowerCase()] : undefined
+export const layoutFrom = (options: PluginOptions | undefined): Layout => parseLayout(options?.layout) ?? 'three-rows'
+const LAYOUT_LABEL: Record<Layout, string> = { 'three-rows': 'three rows', 'two-rows': 'two rows', 'one-row': 'one row' }
+
 // ── Formatting ─────────────────────────────────────────────────────────────
+// "claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-3-5-haiku-20241022",
+// "us.anthropic.claude-opus-4-1-20250805-v1:0", "claude-sonnet-4-5@20250929" and
+// "opus[1m]" all read as the family and version: "Opus 5.5", "Haiku 3.5".
+export const modelLabel = (raw: string): string => {
+  const id = raw
+    .trim()
+    .toLowerCase()
+    .replace(/\[[^\]]*\]$/, '')
+    .replace(/^.*?claude-/, '')
+    .replace(/@.*$/, '')
+    .replace(/-v\d+(:\d+)?$/, '')
+    .replace(/-(\d{8}|latest)$/, '')
+  const family = id.match(/opus|sonnet|haiku/)?.[0]
+  if (family === undefined) return raw
+  const version = id
+    .split(/[-_.\s]+/)
+    .filter(part => /^\d{1,2}$/.test(part))
+    .join('.')
+  const name = family.charAt(0).toUpperCase() + family.slice(1)
+
+  return version === '' ? name : `${name} ${version}`
+}
+
 export const formatTokens = (n: number): string => {
   if (n < 1000) return String(Math.round(n))
   if (n < 100_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k`
@@ -133,7 +186,8 @@ export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, c
   const rects = parts
     .map(p => {
       const w = x(p.tokens)
-      const rect = w > 0 ? `<rect x="${cx.toFixed(2)}" width="${w.toFixed(2)}" height="${H}" fill="${p.color}"/>` : ''
+      const paint = p.color.startsWith('zone:') ? `class="z-${p.color.slice(5)}"` : `fill="${p.color}"`
+      const rect = w > 0 ? `<rect x="${cx.toFixed(2)}" width="${w.toFixed(2)}" height="${H}" ${paint}/>` : ''
       cx += w
 
       return rect
@@ -210,12 +264,14 @@ export const terminalBar = (
 async function readGit($: EngineInterface) {
   try {
     const head = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 3000 })
-    if (head.exitCode !== 0) return { branch: null, isDirty: false }
-    const status = await $.process.run(['git', 'status', '--porcelain', '-uno'], { timeoutMs: 3000 })
+    if (head.exitCode !== 0) return { branch: null, isDirty: false, changes: 0 }
+    // Every file git would list for a commit: staged, unstaged and untracked.
+    const status = await $.process.run(['git', 'status', '--porcelain'], { timeoutMs: 3000 })
+    const changes = status.exitCode === 0 ? status.stdout.split('\n').filter(line => line.trim() !== '').length : 0
 
-    return { branch: head.stdout.trim() || null, isDirty: status.exitCode === 0 && status.stdout.trim() !== '' }
+    return { branch: head.stdout.trim() || null, isDirty: changes > 0, changes }
   } catch {
-    return { branch: null, isDirty: false }
+    return { branch: null, isDirty: false, changes: 0 }
   }
 }
 
@@ -256,6 +312,7 @@ async function refresh($: EngineInterface): Promise<void> {
       model,
       branch: git.branch,
       isDirty: git.isDirty,
+      changes: git.changes,
       takenAt: at,
     }
     await update($, snapshot, () => next)
@@ -277,6 +334,7 @@ async function setExpanded($: EngineInterface, value: boolean): Promise<void> {
 // ── Hooks ──────────────────────────────────────────────────────────────────
 export const register: Register = (on, options) => {
   const thresholds = thresholdsFrom(options)
+  const layout = layoutFrom(options)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -299,6 +357,18 @@ export const register: Register = (on, options) => {
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
+    if (arg === 'layout' || arg.startsWith('layout ')) {
+      const wanted = parseLayout(arg.slice('layout'.length))
+      if (wanted === undefined) {
+        return { text: `Layout is ${LAYOUT_LABEL[layout]}. Pick one: /am-context-bar layout v1 | v2 | v3 (three-rows, two-rows, one-row).` }
+      }
+      // Stored as the plugin's setting, the same one /config shows; the module
+      // reloads with it.
+      const result = await $.config.set({ key: 'am-context-bar.layout', value: wanted })
+      if ('deny' in result && result.deny !== undefined) return { text: `Couldn't change the layout: ${result.deny}` }
+
+      return { text: `Context card layout: ${LAYOUT_LABEL[wanted]}.` }
+    }
     if (arg === 'expand' || arg === 'collapse') {
       await setExpanded($, arg === 'expand')
       await update($, isVisible, () => true)
@@ -359,11 +429,32 @@ export const register: Register = (on, options) => {
       .filter(s => s.kind === 'used' && s.tokens > 0)
       .map((segment, index) => ({ segment, color: colorOf(segment, index) }))
       .sort((a, b) => b.segment.tokens - a.segment.tokens)
-    const parts = used.map(({ segment, color }) => ({ tokens: segment.tokens, color }))
     const free = snap.segments.find(s => s.kind === 'free')?.tokens ?? Math.max(0, window - snap.usedTokens)
     const buffer = snap.segments.find(s => s.kind === 'buffer')?.tokens
     const usedTotal = used.reduce((sum, u) => sum + u.segment.tokens, 0) || snap.usedTokens
+    // A white card in a light theme, the theme's darkest in a dark one: the
+    // theme's inverse-text colour is its page background. The terminal keeps
+    // its own background.
+    const card = e.surface === 'terminal' ? {} : { backgroundColor: 'inverseText' as const }
     const git = snap.branch === null ? 'no repo' : `${snap.branch}${snap.isDirty ? '*' : ''}`
+    const changes = snap.changes ?? (snap.isDirty ? 1 : 0)
+    const gitStatus =
+      snap.branch === null ? (
+        <Text dimColor>no git repo</Text>
+      ) : (
+        <Text>
+          <Text dimColor>⎇ </Text>
+          <Text>{snap.branch === 'HEAD' ? 'detached' : snap.branch}</Text>
+          <Text dimColor> · </Text>
+          {changes === 0 ? (
+            <Text color="success">✓ Nothing to commit</Text>
+          ) : (
+            <Text color="warning">
+              ● {changes} uncommitted {changes === 1 ? 'change' : 'changes'}
+            </Text>
+          )}
+        </Text>
+      )
 
     // The full-width bar: vector on remote surfaces, glyph cells on the terminal.
     let bar
@@ -371,7 +462,7 @@ export const register: Register = (on, options) => {
       const cells = Math.max(10, (e.props.bodyColumns ?? 80) - 4)
       bar = (
         <Text>
-          {terminalBar(cells, parts, window, dumbFrom, snap.compactsAt).map(run => (
+          {terminalBar(cells, [{ tokens: usedTotal, color: zone.color }], window, dumbFrom, snap.compactsAt).map(run => (
             <Text color={run.color} dimColor={run.isDim}>
               {run.text}
             </Text>
@@ -382,7 +473,8 @@ export const register: Register = (on, options) => {
       const { Svg } = $.ui.resolve(e)
       bar = (
         <Svg
-          source={contextBarSvg(parts, window, dumbFrom, snap.compactsAt)}
+          height={8}
+          source={contextBarSvg([{ tokens: usedTotal, color: zonePaint(zone.id) }], window, dumbFrom, snap.compactsAt)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -424,6 +516,13 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
+    // The collapsed card is labelled by its glyph alone.
+    const icon = (
+      <Box marginRight={1}>
+        <Text color="subtle">◔</Text>
+      </Box>
+    )
+
     const pill = (
       <Text color={zone.color}>
         ● {zone.label}
@@ -431,34 +530,135 @@ export const register: Register = (on, options) => {
     )
 
     const metaStack = (
-      <Box flexDirection="column" alignItems="flex-end" marginRight={1}>
+      <Box marginRight={1}>
         <Text>
-          <Text>{snap.model}</Text>
+          <Text>{modelLabel(snap.model)}</Text>
           <Text dimColor> · thinking </Text>
           <Text>{level}</Text>
-        </Text>
-        <Text>
-          <Text dimColor>compacted </Text>
+          <Text dimColor> · compacted </Text>
           <Text>{String(compacted)}</Text>
-          <Text dimColor> · git </Text>
-          <Text>{git}</Text>
         </Text>
       </Box>
     )
 
+    // A short bar that sits in a row (V2, V3): fixed width on the desktop, a
+    // fixed number of cells on the terminal.
+    const inlineBar = (px: number, cells: number) => {
+      if (e.surface === 'terminal') {
+        return (
+          <Text>
+            {terminalBar(cells, [{ tokens: usedTotal, color: zone.color }], window, dumbFrom, snap.compactsAt).map(run => (
+              <Text color={run.color} dimColor={run.isDim}>
+                {run.text}
+              </Text>
+            ))}
+          </Text>
+        )
+      }
+      const { Svg } = $.ui.resolve(e)
+
+      return (
+        <Svg
+          width={px}
+          height={8}
+          source={contextBarSvg([{ tokens: usedTotal, color: zonePaint(zone.id) }], window, dumbFrom, snap.compactsAt)}
+          alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
+        />
+      )
+    }
+
+    const count = (
+      <Text>
+        <Text bold color={zone.color}>
+          {formatTokens(snap.usedTokens)}
+        </Text>
+        <Text dimColor> / {formatTokens(window)} · </Text>
+        <Text bold color={PERCENT}>
+          {Math.round(percent)}%
+        </Text>
+      </Text>
+    )
+
+    const legend = (
+      <Box flexWrap="wrap">
+        {used.map(({ segment }, index) => (
+          <Box key={`legend-${index}`}>
+            {index > 0 && <Text dimColor> · </Text>}
+            <Text dimColor>{shortLabel(segment.name)} </Text>
+            <Text>{formatTokens(segment.tokens)}</Text>
+          </Box>
+        ))}
+      </Box>
+    )
+
+    // V3's git note: the branch and a mark, no words.
+    const gitShort =
+      snap.branch === null ? null : (
+        <Text>
+          <Text dimColor> · ⎇ </Text>
+          <Text>{snap.branch === 'HEAD' ? 'detached' : snap.branch} </Text>
+          {changes === 0 ? <Text color="success">✓</Text> : <Text color="warning">● {changes}</Text>}
+        </Text>
+      )
+
     // ── C · collapsed ──
     if (!expanded) {
+      if (layout === 'one-row') {
+        return (
+          <Box justifyContent="space-between" alignItems="center" flexWrap="wrap" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
+            <Box alignItems="center">
+              {icon}
+              {count}
+              <Box marginX={2}>{inlineBar(220, 20)}</Box>
+              {pill}
+            </Box>
+            <Box alignItems="center">
+              <Box marginRight={1}>
+                <Text>
+                  <Text>{modelLabel(snap.model)}</Text>
+                  <Text dimColor> · thinking </Text>
+                  <Text>{level}</Text>
+                  <Text dimColor> · compacted </Text>
+                  <Text>{String(compacted)}</Text>
+                  {gitShort}
+                </Text>
+              </Box>
+              {toggle}
+            </Box>
+          </Box>
+        )
+      }
+
+      if (layout === 'two-rows') {
+        return (
+          <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
+            <Box justifyContent="space-between" alignItems="center" flexWrap="wrap">
+              <Box alignItems="center">
+                {icon}
+                {count}
+                <Box marginX={2}>{inlineBar(260, 24)}</Box>
+                {pill}
+              </Box>
+              <Box alignItems="center">
+                {metaStack}
+                {toggle}
+              </Box>
+            </Box>
+            <Box justifyContent="space-between" flexWrap="wrap">
+              {legend}
+              {gitStatus}
+            </Box>
+          </Box>
+        )
+      }
+
       return (
-        <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
+        <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
           <Box justifyContent="space-between" alignItems="center" flexWrap="wrap">
             <Box alignItems="center">
-              {title}
-              <Text bold color={zone.color}>
-                {formatTokens(snap.usedTokens)}
-              </Text>
-              <Text dimColor>
-                {' '}/ {formatTokens(window)} · {Math.round(percent)}%{'  '}
-              </Text>
+              {icon}
+              {count}
+              <Text>{'  '}</Text>
               {pill}
             </Box>
             <Box alignItems="center">
@@ -468,19 +668,8 @@ export const register: Register = (on, options) => {
           </Box>
           {bar}
           <Box justifyContent="space-between" flexWrap="wrap">
-            <Box flexWrap="wrap">
-              {used.map(({ segment, color }, index) => (
-                <Box key={`legend-${index}`} marginRight={2}>
-                  <Text color={color}>■ </Text>
-                  <Text dimColor>{shortLabel(segment.name)} </Text>
-                  <Text>{formatTokens(segment.tokens)}</Text>
-                </Box>
-              ))}
-            </Box>
-            <Text>
-              <Text color="claude">dumb zone {formatTokens(dumbFrom)}</Text>
-              {snap.compactsAt !== undefined && <Text dimColor> · compact {formatTokens(snap.compactsAt)}</Text>}
-            </Text>
+            {legend}
+            {gitStatus}
           </Box>
         </Box>
       )
@@ -511,7 +700,7 @@ export const register: Register = (on, options) => {
     const hasLimits = snap.session !== undefined || snap.weekly !== undefined
 
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1}>
+      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
         <Box justifyContent="space-between" alignItems="center">
           {title}
           <Box alignItems="center">
@@ -525,9 +714,11 @@ export const register: Register = (on, options) => {
             <Text bold color={zone.color}>
               {formatTokens(snap.usedTokens)}
             </Text>
-            <Text dimColor>
-              {' '}/ {formatTokens(window)} · {Math.round(percent)}% used
+            <Text dimColor> / {formatTokens(window)} · </Text>
+            <Text bold color={PERCENT}>
+              {Math.round(percent)}%
             </Text>
+            <Text dimColor> used</Text>
           </Text>
           {snap.compactsAt !== undefined && (
             <Text>
@@ -616,7 +807,7 @@ export const register: Register = (on, options) => {
           </Box>
         )}
         <Box flexWrap="wrap" marginTop={1}>
-          {meta('model', 'Model', snap.model)}
+          {meta('model', 'Model', modelLabel(snap.model))}
           {meta('thinking', 'Thinking', level)}
           {meta('compactions', 'Compacted', String(compacted))}
           {meta('git', 'Git', git)}

@@ -1,7 +1,7 @@
 {
   "name": "am-context-bar",
-  "version": "0.2.0",
-  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git. /am-context-bar on | off | expand | collapse.",
+  "version": "0.3.0",
+  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git. Three layouts. /am-context-bar on | off | layout v1|v2|v3.",
   "author": {
     "name": "romnycristopher"
   },
@@ -9,6 +9,17 @@
   "license": "MIT",
   "types": "./types/index.d.ts",
   "userConfig": {
+    "layout": {
+      "type": "string",
+      "title": "Layout",
+      "description": "Shape of the context card: three-rows (full-width bar), two-rows (short bar beside the count) or one-row.",
+      "default": "three-rows",
+      "options": [
+        "three-rows",
+        "two-rows",
+        "one-row"
+      ]
+    },
     "nearingAt": {
       "type": "number",
       "title": "Nearing dumb zone at (%)",

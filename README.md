@@ -20,14 +20,27 @@ Answer `y` to add the marketplace, then pick a scope (user scope makes it active
 
 ## am-context-bar
 
-Collapsed (default):
+Three layouts for the card:
 
 ```
-◔ CONTEXT  63.4k / 1M · 6%  ● Plenty of room      Opus 5.5 · thinking default  ▾
-                                                   compacted 0 · git main*
-██▌░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│╱╱
-■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ Prompt 4.7k   dumb zone 500k · compact 967k
+V1 · three-rows (default)
+◔ 63.4k / 1M · 6%  ● Plenty of room                  Opus 5.5 · thinking default · compacted 0  ▾
+██▌░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│╱╱
+Tools 28k · MCP 19k · Skills 8.5k · Prompt 4.7k                       ⎇ main · ✓ Nothing to commit
+
+V2 · two-rows
+◔ 63.4k / 1M · 6%  █░░░░░░░░░░│░░░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · compacted 0  ▾
+Tools 28k · MCP 19k · Skills 8.5k · Prompt 4.7k                       ⎇ main · ✓ Nothing to commit
+
+V3 · one-row
+◔ 63.4k / 1M · 6%  █░░░░░░░░│░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · compacted 0 · ⎇ main ✓  ▾
 ```
+
+Pick one with `/am-context-bar layout v1`, `v2` or `v3` (or `three-rows`, `two-rows`, `one-row`), or with the **Layout** setting in `/config`. It's one setting, so both ways stay in sync.
+
+The token count and the filled part of the bar take the zone's colour, so the bar turns from green to red as the window fills.
+
+The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitted changes` (staged, unstaged and untracked files) otherwise.
 
 Expanded (press `▾`, or `/am-context-bar expand`): the count and what's left before auto-compact, a scale with the dumb zone and auto-compact marked, a legend (used, free, reserved buffer, dumb zone), a "what's using it" table with a bar, tokens and share per category, session and weekly limits, and model, thinking, compactions and git.
 
@@ -42,7 +55,7 @@ Expanded (press `▾`, or `/am-context-bar expand`): the count and what's left b
 
 The cut-offs are settings (`nearingAt`, `dumbZoneAt`, `compactSoonAt`, in percent) in `/config`, or under `pluginConfigs` in settings.
 
-- `/am-context-bar` toggles the card; `on` and `off` set it; `expand` and `collapse` pick the view. Both choices are remembered across sessions.
+- `/am-context-bar` toggles the card; `on` and `off` set it; `layout v1|v2|v3` picks the layout; `expand` and `collapse` pick the view. Both choices are remembered across sessions.
 - Text uses theme colours, so it follows light and dark themes. On the desktop the bars are vector drawings that switch palette with the app's colour scheme; in the terminal they are drawn with block characters.
 - Session and weekly limits appear on a Claude subscription, once the first response of the session reports them.
 - Thinking shows the effort the last main request was sent with (`default` until the first one).

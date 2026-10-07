@@ -1,6 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, formatReset, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, formatReset, layoutFrom, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
   name,
@@ -67,6 +68,19 @@ test('formats tokens and reset countdowns', async () => {
   expect(formatReset('2026-10-08T10:10:00Z', at)).toBe('1d 20h 20m')
 })
 
+test('shortens model ids to family and version', async () => {
+  expect(modelLabel('claude-opus-5-5')).toBe('Opus 5.5')
+  expect(modelLabel('claude-sonnet-4-5-20250929')).toBe('Sonnet 4.5')
+  expect(modelLabel('claude-3-5-haiku-20241022')).toBe('Haiku 3.5')
+  expect(modelLabel('claude-opus-4-1')).toBe('Opus 4.1')
+  expect(modelLabel('us.anthropic.claude-opus-4-1-20250805-v1:0')).toBe('Opus 4.1')
+  expect(modelLabel('claude-sonnet-4-5@20250929')).toBe('Sonnet 4.5')
+  expect(modelLabel('claude-opus-4-6[1m]')).toBe('Opus 4.6')
+  expect(modelLabel('opus')).toBe('Opus')
+  expect(modelLabel('Opus 5.5')).toBe('Opus 5.5')
+  expect(modelLabel('gpt-something')).toBe('gpt-something')
+})
+
 test('zones follow the thresholds', async () => {
   expect(zoneOf(6).label).toBe('Plenty of room')
   expect(zoneOf(42).label).toBe('Nearing dumb zone')
@@ -90,6 +104,7 @@ test('formats labels and bars', async () => {
   expect(runs.some(r => r.color === 'claude' && r.text === '│')).toBe(true)
   const svg = contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000)
   expect(svg).toMatch(/prefers-color-scheme:dark/)
+  expect(contextBarSvg([{ tokens: 640_000, color: 'zone:dumb' }], 1_000_000, 500_000)).toMatch(/<rect x="0.00" width="640.00" height="12" class="z-dumb"\/>/)
   expect(svg).toMatch(/class="d" x="500.00"/)
 })
 
@@ -105,8 +120,14 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('session.usage', () => ({ value: USAGE }))
   on('session.model', () => ({ value: 'Opus 5.5' }))
-  on('process.run', () => ({
-    value: { exitCode: 0, stdout: 'main\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  on('process.run', ($, e) => ({
+    value: {
+      exitCode: 0,
+      stdout: e.argv.includes('status') ? ' M hooks/register.tsx\n?? notes.md\n' : 'main\n',
+      stderr: '',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
   }))
   await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
 
@@ -120,7 +141,7 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
 
   for (const surface of ['terminal', 'desktop'] as const) {
     const hidden = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
-    expect(await hidden.find({ type: 'Text', text: 'CONTEXT' })).toBeUndefined()
+    expect(await hidden.find({ type: 'Text', text: '◔' })).toBeUndefined()
     expect(await hidden.find({ type: 'Text', text: 'engine' })).toBeDefined()
     await hidden.unmount()
   }
@@ -131,11 +152,17 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
     await run('collapse')
     const ui = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
     // Collapsed (C): zone-coloured count, zone pill, short legend, meta, toggle.
-    expect(await ui.find({ type: 'Text', text: 'CONTEXT' })).toBeDefined()
-    expect((await ui.find({ type: 'Text', text: '90k' }))?.props?.color).toBe('success')
+    expect(await ui.find({ type: 'Text', text: '◔' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'CONTEXT' })).toBeUndefined()
+    expect((await ui.find({ type: 'Box' }))?.props?.backgroundColor).toBe(surface === 'terminal' ? undefined : 'inverseText')
+    expect((await ui.findAll({ type: 'Text', text: '90k' })).some(t => t.props?.color === 'success')).toBe(true)
     expect(await ui.find({ type: 'Text', text: /Plenty of room/ })).toBeDefined()
+    const pct = (await ui.findAll({ type: 'Text', text: '9%' })).find(t => t.props?.bold === true)
+    expect(pct?.props?.color).toBe('suggestion')
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /2 uncommitted changes/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /dumb zone/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /deferred/i })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: "WHAT'S USING IT" })).toBeUndefined()
 
@@ -154,4 +181,67 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
   }
 
   expect((await run('off')).text).toMatch(/hidden/)
+})
+
+const startCard = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]) => {
+  mock.clock(on, { now: Date.parse('2026-10-06T13:50:00Z') })
+  mock.store(on)
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine</Text>
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('session.usage', () => ({ value: USAGE }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('process.run', ($, e) => ({
+    value: {
+      exitCode: 0,
+      stdout: e.argv.includes('status') ? '' : 'main\n',
+      stderr: '',
+      isStdoutTruncated: false,
+      isStderrTruncated: false,
+    },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  await $.command.run({
+    command: 'am-context-bar',
+    args: 'on',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 100 },
+  })
+}
+
+test('layout names', async () => {
+  expect(parseLayout('v2')).toBe('two-rows')
+  expect(parseLayout(' V3 ')).toBe('one-row')
+  expect(parseLayout('three-rows')).toBe('three-rows')
+  expect(parseLayout('big')).toBeUndefined()
+  expect(layoutFrom({})).toBe('three-rows')
+  expect(layoutFrom({ layout: 'one-row' })).toBe('one-row')
+})
+
+test('two-rows puts a short bar beside the count', { options: { layout: 'two-rows' } }, async ($, on) => {
+  await startCard($, on)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
+    expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '✓ Nothing to commit' })).toBeDefined()
+    if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(260)
+    await ui.unmount()
+  }
+})
+
+test('one-row drops the legend and keeps a short git mark', { options: { layout: 'one-row' } }, async ($, on) => {
+  await startCard($, on)
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
+    expect(await ui.find({ type: 'Text', text: /Plenty of room/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '✓' })).toBeDefined()
+    if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(220)
+    await ui.unmount()
+  }
 })

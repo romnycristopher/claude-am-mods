@@ -16,6 +16,8 @@ export type Snapshot = {
   model: string
   branch: string | null
   isDirty: boolean
+  /** Files git would list for a commit (staged, unstaged, untracked). */
+  changes?: number
   takenAt: number
 }
 

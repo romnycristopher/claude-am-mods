@@ -24,16 +24,16 @@ Three layouts for the card:
 
 ```
 V1 · three-rows (default)
-◔ 63.4k / 1M · 6%  ● Plenty of room                  Opus 5.5 · thinking default · resets 1h 10m · ↻ 0  ▾
+◔ 63.4k / 1M · 6%  ● Plenty of room                  Opus 5.5 · Thinking default · Resets 1h 10m · ↻ 0  ▾
 ██▌░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│╱╱
 ■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ System 4.7k  │  ■ Messages 3.2k   ⎇ main · ✓ Nothing to commit
 
 V2 · two-rows
-◔ 63.4k / 1M · 6%  █░░░░░░░░░░│░░░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · resets 1h 10m · ↻ 0  ▾
+◔ 63.4k / 1M · 6%  █░░░░░░░░░░│░░░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · Thinking default · Resets 1h 10m · ↻ 0  ▾
 ■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ System 4.7k  │  ■ Messages 3.2k   ⎇ main · ✓ Nothing to commit
 
 V3 · one-row
-◔ 63.4k / 1M · 6%  █░░░░░░░░│░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · resets 1h 10m · ↻ 0 · ⎇ main ✓  ▾
+◔ 63.4k / 1M · 6%  █░░░░░░░░│░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · Thinking default · Resets 1h 10m · ↻ 0 · ⎇ main ✓  ▾
 ```
 
 Pick one with `/am-context-bar layout v1`, `v2` or `v3` (or `three-rows`, `two-rows`, `one-row`), or with the **Layout** setting in `/config`. It's one setting, so both ways stay in sync.
@@ -42,11 +42,13 @@ In V1 and V2 the legend stays short: MCP tools and instructions show as one **MC
 
 In V1 and V2 the bar is split the same way, each part in its legend colour; in V3 it is one fill in the zone's colour, so it turns from green to red as the window fills. The token count always takes the zone's colour.
 
-`resets 1h 10m` is when the session limit resets; `↻ 0` counts the times this session has been compacted.
+`Resets 1h 10m` is when the session limit resets; `↻ 0` counts the times this session has been compacted.
 
 The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitted changes` (staged, unstaged and untracked files) otherwise.
 
-Expanded (press `▾`, or `/am-context-bar expand`): the count and what's left before auto-compact, a scale with the dumb zone and auto-compact marked, a legend (used, free, reserved buffer, dumb zone), a "what's using it" table with a bar, tokens and share per category, session and weekly limits, and model, thinking, compactions and git.
+Expanded (press `▾`, or `/am-context-bar expand`): the count and what's left before auto-compact, a bar with the dumb zone and auto-compact marked, a legend (used, free, where the dumb zone starts: around 40–50% by default (400k–500k on a 1M window), ten points below the **Dumb zone starts at** setting, reserved buffer), a "what's using it" table with a bar, tokens and share per category, session and weekly limits, and model, thinking and compactions, with the branch and commit status at the right.
+
+It fits the space above the prompt instead of scrolling: on a short terminal it drops its spacer lines, then the blank line above it, then folds the smallest categories into one **Other** row.
 
 **Zones.** The token count and the status pill change colour with how full the window is:
 

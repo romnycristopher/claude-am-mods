@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, formatReset, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, fitExpanded, formatReset, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
   name,
@@ -204,7 +204,8 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
     expect(await ui.find({ type: 'Text', text: 'MCP tools' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '52k' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '18.0%' })).toBeDefined()
-    expect(await ui.find({ type: 'Text', text: ' · resets 1h 10m' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' · Resets 1h 10m' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /2 uncommitted changes/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
 
     await ui.press({ key: 'toggle' })
@@ -282,5 +283,41 @@ test('one-row drops the legend and keeps a short git mark', { options: { layout:
     // V3 keeps a single fill in the zone's colour.
     if (surface === 'desktop') expect(String((await ui.find({ type: 'Svg' }))?.props?.source)).toMatch(/class="z-clear"/)
     await ui.unmount()
+  }
+})
+
+test('the expanded card fits the band: spacers go, then the margin, then small rows fold', async () => {
+  // 7 fixed rows, a limits row, 3 categories.
+  expect(fitExpanded(14, 3, true)).toEqual({ margin: 1, gap: 1, rows: 3 })
+  expect(fitExpanded(13, 3, true)).toEqual({ margin: 1, gap: 0, rows: 3 })
+  expect(fitExpanded(11, 3, true)).toEqual({ margin: 0, gap: 0, rows: 3 })
+  expect(fitExpanded(10, 3, true)).toEqual({ margin: 0, gap: 0, rows: 1 })
+  expect(fitExpanded(13, 3, false)).toEqual({ margin: 1, gap: 1, rows: 3 })
+  expect(fitExpanded(Infinity, 12, true)).toEqual({ margin: 1, gap: 1, rows: 12 })
+})
+
+test('a short band folds the smallest categories into Other', async ($, on) => {
+  await startCard($, on)
+  await $.command.run({
+    command: 'am-context-bar',
+    args: 'expand',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 100 },
+  })
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const roomy = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
+    expect(await roomy.find({ type: 'Text', text: "WHAT'S USING IT" })).toBeDefined()
+    expect(await roomy.find({ type: 'Text', text: 'System tools' })).toBeDefined()
+    expect(await roomy.find({ type: 'Text', text: '40–50%' })).toBeDefined()
+    expect(await roomy.find({ type: 'Text', text: ' (400k–500k)' })).toBeDefined()
+    expect(await roomy.find({ type: 'Text', text: /^Other/ })).toBeUndefined()
+    await roomy.unmount()
+
+    const short = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND, props: { ...BAND.props, maxRows: 10 } })
+    expect(await short.find({ type: 'Text', text: 'MCP tools' })).toBeDefined()
+    expect(await short.find({ type: 'Text', text: 'System tools' })).toBeUndefined()
+    expect(await short.find({ type: 'Text', text: 'Other (2)' })).toBeDefined()
+    expect((await short.find({ type: 'Box' }))?.props?.marginTop).toBe(0)
+    await short.unmount()
   }
 })

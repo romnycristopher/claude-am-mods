@@ -112,6 +112,23 @@ export const parseLayout = (value: unknown): Layout | undefined =>
 export const layoutFrom = (options: PluginOptions | undefined): Layout => parseLayout(options?.layout) ?? 'three-rows'
 const LAYOUT_LABEL: Record<Layout, string> = { 'three-rows': 'three rows', 'two-rows': 'two rows', 'one-row': 'one row' }
 
+// The expanded card fits the band's rows rather than scroll: its two spacer
+// lines go first, then the blank line above it, then the smallest categories
+// fold into one "Other" row.
+export type ExpandedFit = { margin: number; gap: number; rows: number }
+
+export const fitExpanded = (maxRows: number, categories: number, hasLimits: boolean): ExpandedFit => {
+  // Two borders, the count, the bar, its legend, the table's head, the meta
+  // row, and the limits row when there are limits.
+  const room = maxRows - (7 + (hasLimits ? 1 : 0))
+  if (room >= categories + 3) return { margin: 1, gap: 1, rows: categories }
+  if (room >= categories + 1) return { margin: 1, gap: 0, rows: categories }
+  if (room >= categories) return { margin: 0, gap: 0, rows: categories }
+
+  // Shown categories, then the Other row.
+  return { margin: 0, gap: 0, rows: Math.min(categories, Math.max(1, room - 1)) }
+}
+
 // ── Formatting ─────────────────────────────────────────────────────────────
 // "claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-3-5-haiku-20241022",
 // "us.anthropic.claude-opus-4-1-20250805-v1:0", "claude-sonnet-4-5@20250929" and
@@ -486,11 +503,10 @@ export const register: Register = (on, options) => {
     // theme's inverse-text colour is its page background. The terminal keeps
     // its own background.
     const card = e.surface === 'terminal' ? {} : { backgroundColor: 'inverseText' as const }
-    const git = snap.branch === null ? 'no repo' : `${snap.branch}${snap.isDirty ? '*' : ''}`
     const changes = snap.changes ?? (snap.isDirty ? 1 : 0)
     const gitStatus =
       snap.branch === null ? (
-        <Text dimColor>no git repo</Text>
+        <Text dimColor>No git repo</Text>
       ) : (
         <Text>
           <Text dimColor>⎇ </Text>
@@ -559,16 +575,7 @@ export const register: Register = (on, options) => {
       />
     )
 
-    const title = (
-      <Box marginRight={2}>
-        <Text color="subtle">◔ </Text>
-        <Text bold dimColor>
-          CONTEXT
-        </Text>
-      </Box>
-    )
-
-    // The collapsed card is labelled by its glyph alone.
+    // The card is labelled by its glyph alone.
     const icon = (
       <Box marginRight={1}>
         <Text color="subtle">◔</Text>
@@ -586,7 +593,7 @@ export const register: Register = (on, options) => {
     const sessionReset =
       resetIn === null ? null : (
         <Text>
-          <Text dimColor> · resets </Text>
+          <Text dimColor> · Resets </Text>
           <Text>{resetIn}</Text>
         </Text>
       )
@@ -595,7 +602,7 @@ export const register: Register = (on, options) => {
       <Box marginRight={1}>
         <Text>
           <Text>{modelLabel(snap.model)}</Text>
-          <Text dimColor> · thinking </Text>
+          <Text dimColor> · Thinking </Text>
           <Text>{level}</Text>
           {sessionReset}
           <Text dimColor> · ↻ </Text>
@@ -691,7 +698,7 @@ export const register: Register = (on, options) => {
               <Box marginRight={1}>
                 <Text>
                   <Text>{modelLabel(snap.model)}</Text>
-                  <Text dimColor> · thinking </Text>
+                  <Text dimColor> · Thinking </Text>
                   <Text>{level}</Text>
                   {sessionReset}
                   <Text dimColor> · ↻ </Text>
@@ -762,7 +769,7 @@ export const register: Register = (on, options) => {
           <Text bold color={zoneOf(value.percent, { nearing: 50, dumb: 80, compact: 95 }).color}>
             {value.percent.toFixed(1)}%
           </Text>
-          {reset !== null && <Text dimColor> · resets {reset}</Text>}
+          {reset !== null && <Text dimColor> · Resets {reset}</Text>}
         </Box>
       )
     }
@@ -772,75 +779,85 @@ export const register: Register = (on, options) => {
         <Text>{value}</Text>
       </Box>
     )
+    const dumbLow = Math.max(0, thresholds.dumb - 10)
     const largest = used[0]?.segment.tokens ?? 1
     const hasLimits = snap.session !== undefined || snap.weekly !== undefined
+    const fit = fitExpanded(e.props.maxRows > 0 ? e.props.maxRows : Infinity, used.length, hasLimits)
+    const rows = used.slice(0, fit.rows)
+    const folded = used.slice(fit.rows)
+    const other = folded.reduce((sum, u) => sum + u.segment.tokens, 0)
+    const tableRow = (key: string, label: string, color: string, tokens: number) => (
+      <Box key={key} alignItems="center">
+        <Box width={22}>
+          <Text color={color}>■ </Text>
+          <Text>{label}</Text>
+        </Box>
+        <Box flexGrow={1} marginX={1}>
+          {miniBar(tokens / largest, color)}
+        </Box>
+        <Box width={8} justifyContent="flex-end">
+          <Text>{formatTokens(tokens)}</Text>
+        </Box>
+        <Box width={7} justifyContent="flex-end">
+          <Text dimColor>{share(tokens, usedTotal)}</Text>
+        </Box>
+      </Box>
+    )
 
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="subtle" marginTop={1} paddingX={1} {...card}>
+      <Box flexDirection="column" borderStyle="round" borderColor="subtle" marginTop={fit.margin} paddingX={1} {...card}>
         <Box justifyContent="space-between" alignItems="center">
-          {title}
           <Box alignItems="center">
-            <Box marginRight={2}>{pill}</Box>
+            {icon}
+            {count}
+            <Box marginLeft={2}>{pill}</Box>
+          </Box>
+          <Box alignItems="center">
+            {snap.compactsAt !== undefined && (
+              <Box marginRight={1}>
+                <Text>
+                  <Text bold>{formatTokens(Math.max(0, snap.compactsAt - snap.usedTokens))}</Text>
+                  <Text dimColor> until auto-compact</Text>
+                </Text>
+              </Box>
+            )}
             {toggle}
-          </Box>
-        </Box>
-
-        <Box justifyContent="space-between" flexWrap="wrap" marginTop={1}>
-          <Text>
-            <Text bold color={zone.color}>
-              {formatTokens(snap.usedTokens)}
-            </Text>
-            <Text dimColor> / {formatTokens(window)} · </Text>
-            <Text bold color={PERCENT}>
-              {Math.round(percent)}%
-            </Text>
-            <Text dimColor> used</Text>
-          </Text>
-          {snap.compactsAt !== undefined && (
-            <Text>
-              <Text bold>{formatTokens(Math.max(0, snap.compactsAt - snap.usedTokens))}</Text>
-              <Text dimColor> left before auto-compact</Text>
-            </Text>
-          )}
-        </Box>
-
-        <Box marginTop={1}>
-          <Box width={`${thresholds.dumb}%`}>
-            <Text dimColor>0</Text>
-          </Box>
-          <Box flexGrow={1} justifyContent="space-between">
-            <Text color="claude">▏dumb zone from {formatTokens(dumbFrom)}</Text>
-            {snap.compactsAt !== undefined && <Text dimColor>auto-compact at {formatTokens(snap.compactsAt)}▕</Text>}
           </Box>
         </Box>
         {fullBar(detailed)}
         <Box flexWrap="wrap">
           <Box marginRight={2}>
             <Text>■ </Text>
-            <Text dimColor>used </Text>
+            <Text dimColor>Used </Text>
             <Text>{formatTokens(snap.usedTokens)}</Text>
           </Box>
           <Box marginRight={2}>
             <Text color="subtle">░ </Text>
-            <Text dimColor>free </Text>
+            <Text dimColor>Free </Text>
             <Text>{formatTokens(free)}</Text>
           </Box>
-          {buffer !== undefined && (
-            <Box marginRight={2}>
-              <Text dimColor>╱ reserved buffer </Text>
-              <Text>{formatTokens(buffer)}</Text>
-            </Box>
-          )}
-          <Box>
+          <Box marginRight={2}>
             <Text color="claude" dimColor>
               ░{' '}
             </Text>
-            <Text dimColor>dumb zone </Text>
-            <Text>{thresholds.dumb}%+</Text>
+            <Text dimColor>Dumb zone starts around </Text>
+            <Text>
+              {dumbLow}–{thresholds.dumb}%
+            </Text>
+            <Text dimColor>
+              {' '}
+              ({formatTokens((window * dumbLow) / 100)}–{formatTokens(dumbFrom)})
+            </Text>
           </Box>
+          {buffer !== undefined && (
+            <Box>
+              <Text dimColor>╱ Buffer </Text>
+              <Text>{formatTokens(buffer)}</Text>
+            </Box>
+          )}
         </Box>
 
-        <Box marginTop={1}>
+        <Box marginTop={fit.gap}>
           <Box width={22}>
             <Text bold dimColor>
               WHAT'S USING IT
@@ -858,35 +875,22 @@ export const register: Register = (on, options) => {
             </Text>
           </Box>
         </Box>
-        {used.map(({ segment, color }, index) => (
-          <Box key={`row-${index}`} alignItems="center">
-            <Box width={22}>
-              <Text color={color}>■ </Text>
-              <Text>{longLabel(segment.name)}</Text>
-            </Box>
-            <Box flexGrow={1} marginX={1}>
-              {miniBar(segment.tokens / largest, color)}
-            </Box>
-            <Box width={8} justifyContent="flex-end">
-              <Text>{formatTokens(segment.tokens)}</Text>
-            </Box>
-            <Box width={7} justifyContent="flex-end">
-              <Text dimColor>{share(segment.tokens, usedTotal)}</Text>
-            </Box>
-          </Box>
-        ))}
+        {rows.map(({ segment, color }, index) => tableRow(`row-${index}`, longLabel(segment.name), color, segment.tokens))}
+        {folded.length > 0 && tableRow('row-other', `Other (${folded.length})`, 'subtle', other)}
 
         {hasLimits && (
-          <Box flexWrap="wrap" marginTop={1}>
-            {limit('session', 'session', snap.session)}
-            {limit('weekly', 'weekly', snap.weekly)}
+          <Box flexWrap="wrap" marginTop={fit.gap}>
+            {limit('session', 'Session', snap.session)}
+            {limit('weekly', 'Weekly', snap.weekly)}
           </Box>
         )}
-        <Box flexWrap="wrap" marginTop={1}>
-          {meta('model', 'Model', modelLabel(snap.model))}
-          {meta('thinking', 'Thinking', level)}
-          {meta('compactions', 'Compacted', String(compacted))}
-          {meta('git', 'Git', git)}
+        <Box justifyContent="space-between" flexWrap="wrap" marginTop={hasLimits ? 0 : fit.gap}>
+          <Box flexWrap="wrap">
+            {meta('model', 'Model', modelLabel(snap.model))}
+            {meta('thinking', 'Thinking', level)}
+            {meta('compactions', 'Compacted', String(compacted))}
+          </Box>
+          {gitStatus}
         </Box>
       </Box>
     )

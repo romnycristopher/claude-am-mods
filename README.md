@@ -44,7 +44,7 @@ In V1 and V2 the bar is split the same way, each part in its legend colour; in V
 
 `Resets 1h 10m` is when the session limit resets; `↻ 0` counts the times this session has been compacted.
 
-The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitted changes` (staged, unstaged and untracked files) otherwise.
+The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitted changes` (staged, unstaged and untracked files) otherwise. After it, `↑2` counts commits to push and `↓1` commits to pull, against the branch's upstream; a branch with no upstream shows neither.
 
 Expanded (press `▾`, or `/am-context-bar expand`): the count and what's left before auto-compact, a bar with the dumb zone and auto-compact marked, a legend (used, free, where the dumb zone starts: around 40–50% by default (400k–500k on a 1M window), ten points below the **Dumb zone starts at** setting, reserved buffer), a "what's using it" table with a bar, tokens and share per category, session and weekly limits, and model, thinking and compactions, with the branch and commit status at the right.
 

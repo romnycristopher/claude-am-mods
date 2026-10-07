@@ -320,15 +320,27 @@ export const terminalBar = (
 }
 
 // ── Data ───────────────────────────────────────────────────────────────────
+// `git status --porcelain=v2 --branch`: every file git would list for a
+// commit (staged, unstaged and untracked), and the commits ahead of and
+// behind the upstream, when the branch has one.
+export const parseStatus = (stdout: string): { changes: number; ahead?: number; behind?: number } => {
+  const lines = stdout.split('\n').filter(line => line.trim() !== '')
+  const ab = lines.find(line => line.startsWith('# branch.ab '))?.match(/\+(\d+) -(\d+)/)
+
+  return {
+    changes: lines.filter(line => !line.startsWith('#')).length,
+    ...(ab ? { ahead: Number(ab[1]), behind: Number(ab[2]) } : {}),
+  }
+}
+
 async function readGit($: EngineInterface) {
   try {
     const head = await $.process.run(['git', 'rev-parse', '--abbrev-ref', 'HEAD'], { timeoutMs: 3000 })
     if (head.exitCode !== 0) return { branch: null, isDirty: false, changes: 0 }
-    // Every file git would list for a commit: staged, unstaged and untracked.
-    const status = await $.process.run(['git', 'status', '--porcelain'], { timeoutMs: 3000 })
-    const changes = status.exitCode === 0 ? status.stdout.split('\n').filter(line => line.trim() !== '').length : 0
+    const status = await $.process.run(['git', 'status', '--porcelain=v2', '--branch'], { timeoutMs: 3000 })
+    const { changes, ahead, behind } = status.exitCode === 0 ? parseStatus(status.stdout) : { changes: 0 }
 
-    return { branch: head.stdout.trim() || null, isDirty: changes > 0, changes }
+    return { branch: head.stdout.trim() || null, isDirty: changes > 0, changes, ahead, behind }
   } catch {
     return { branch: null, isDirty: false, changes: 0 }
   }
@@ -372,6 +384,8 @@ async function refresh($: EngineInterface): Promise<void> {
       branch: git.branch,
       isDirty: git.isDirty,
       changes: git.changes,
+      ahead: git.ahead,
+      behind: git.behind,
       takenAt: at,
     }
     await update($, snapshot, () => next)
@@ -504,6 +518,8 @@ export const register: Register = (on, options) => {
     // its own background.
     const card = e.surface === 'terminal' ? {} : { backgroundColor: 'inverseText' as const }
     const changes = snap.changes ?? (snap.isDirty ? 1 : 0)
+    const ahead = snap.ahead ?? 0
+    const behind = snap.behind ?? 0
     const gitStatus =
       snap.branch === null ? (
         <Text dimColor>No git repo</Text>
@@ -519,6 +535,8 @@ export const register: Register = (on, options) => {
               ● {changes} uncommitted {changes === 1 ? 'change' : 'changes'}
             </Text>
           )}
+          {ahead > 0 && <Text color="warning"> ↑{ahead}</Text>}
+          {behind > 0 && <Text color="warning"> ↓{behind}</Text>}
         </Text>
       )
 
@@ -673,13 +691,15 @@ export const register: Register = (on, options) => {
       </Box>
     )
 
-    // V3's git note: the branch and a mark, no words.
+    // V3's git note: the branch and marks, no words.
     const gitShort =
       snap.branch === null ? null : (
         <Text>
           <Text dimColor> · ⎇ </Text>
           <Text>{snap.branch === 'HEAD' ? 'detached' : snap.branch} </Text>
           {changes === 0 ? <Text color="success">✓</Text> : <Text color="warning">● {changes}</Text>}
+          {ahead > 0 && <Text color="warning"> ↑{ahead}</Text>}
+          {behind > 0 && <Text color="warning"> ↓{behind}</Text>}
         </Text>
       )
 

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, fitExpanded, formatReset, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, fitExpanded, formatReset, parseStatus, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
   name,
@@ -231,7 +231,7 @@ const startCard = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   on('process.run', ($, e) => ({
     value: {
       exitCode: 0,
-      stdout: e.argv.includes('status') ? '' : 'main\n',
+      stdout: e.argv.includes('status') ? '# branch.head main\n# branch.upstream origin/main\n# branch.ab +3 -0\n' : 'main\n',
       stderr: '',
       isStdoutTruncated: false,
       isStderrTruncated: false,
@@ -262,6 +262,8 @@ test('two-rows puts a short bar beside the count', { options: { layout: 'two-row
     expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '✓ Nothing to commit' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' ↑3' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: /↓/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: '1h 10m' })).toBeDefined()
     if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(260)
     // V2 splits its bar by category, with matching legend squares.
@@ -279,6 +281,7 @@ test('one-row drops the legend and keeps a short git mark', { options: { layout:
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: '1h 10m' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '✓' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' ↑3' })).toBeDefined()
     if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(220)
     // V3 keeps a single fill in the zone's colour.
     if (surface === 'desktop') expect(String((await ui.find({ type: 'Svg' }))?.props?.source)).toMatch(/class="z-clear"/)
@@ -320,4 +323,12 @@ test('a short band folds the smallest categories into Other', async ($, on) => {
     expect((await short.find({ type: 'Box' }))?.props?.marginTop).toBe(0)
     await short.unmount()
   }
+})
+
+test('git status counts changes and commits ahead and behind', async () => {
+  const v2 = ['# branch.oid 514a304', '# branch.head main', '# branch.upstream origin/main', '# branch.ab +3 -2', '1 .M N... 100644 100644 100644 a b hooks/register.tsx', '? notes.md', ''].join('\n')
+  expect(parseStatus(v2)).toEqual({ changes: 2, ahead: 3, behind: 2 })
+  // No upstream: no counts, so nothing to push or pull is shown.
+  expect(parseStatus('# branch.oid 514a304\n# branch.head topic\n')).toEqual({ changes: 0 })
+  expect(parseStatus('')).toEqual({ changes: 0 })
 })

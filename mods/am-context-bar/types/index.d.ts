@@ -18,6 +18,9 @@ export type Snapshot = {
   isDirty: boolean
   /** Files git would list for a commit (staged, unstaged, untracked). */
   changes?: number
+  /** Commits ahead of and behind the upstream; absent without one. */
+  ahead?: number
+  behind?: number
   takenAt: number
 }
 

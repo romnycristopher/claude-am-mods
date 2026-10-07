@@ -432,6 +432,9 @@ export const register: Register = (on, options) => {
     const free = snap.segments.find(s => s.kind === 'free')?.tokens ?? Math.max(0, window - snap.usedTokens)
     const buffer = snap.segments.find(s => s.kind === 'buffer')?.tokens
     const usedTotal = used.reduce((sum, u) => sum + u.segment.tokens, 0) || snap.usedTokens
+    // V1 and V2 split the bar by category, in the legend's colours; V3 has room
+    // only for one fill, in the zone's colour.
+    const composed = used.map(({ segment, color }) => ({ tokens: segment.tokens, color }))
     // A white card in a light theme, the theme's darkest in a dark one: the
     // theme's inverse-text colour is its page background. The terminal keeps
     // its own background.
@@ -462,7 +465,7 @@ export const register: Register = (on, options) => {
       const cells = Math.max(10, (e.props.bodyColumns ?? 80) - 4)
       bar = (
         <Text>
-          {terminalBar(cells, [{ tokens: usedTotal, color: zone.color }], window, dumbFrom, snap.compactsAt).map(run => (
+          {terminalBar(cells, composed, window, dumbFrom, snap.compactsAt).map(run => (
             <Text color={run.color} dimColor={run.isDim}>
               {run.text}
             </Text>
@@ -474,7 +477,7 @@ export const register: Register = (on, options) => {
       bar = (
         <Svg
           height={8}
-          source={contextBarSvg([{ tokens: usedTotal, color: zonePaint(zone.id) }], window, dumbFrom, snap.compactsAt)}
+          source={contextBarSvg(composed, window, dumbFrom, snap.compactsAt)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -543,11 +546,12 @@ export const register: Register = (on, options) => {
 
     // A short bar that sits in a row (V2, V3): fixed width on the desktop, a
     // fixed number of cells on the terminal.
-    const inlineBar = (px: number, cells: number) => {
+    const inlineBar = (px: number, cells: number, isComposed: boolean) => {
+      const zoneFill = (paint: string) => [{ tokens: usedTotal, color: paint }]
       if (e.surface === 'terminal') {
         return (
           <Text>
-            {terminalBar(cells, [{ tokens: usedTotal, color: zone.color }], window, dumbFrom, snap.compactsAt).map(run => (
+            {terminalBar(cells, isComposed ? composed : zoneFill(zone.color), window, dumbFrom, snap.compactsAt).map(run => (
               <Text color={run.color} dimColor={run.isDim}>
                 {run.text}
               </Text>
@@ -561,7 +565,7 @@ export const register: Register = (on, options) => {
         <Svg
           width={px}
           height={8}
-          source={contextBarSvg([{ tokens: usedTotal, color: zonePaint(zone.id) }], window, dumbFrom, snap.compactsAt)}
+          source={contextBarSvg(isComposed ? composed : zoneFill(zonePaint(zone.id)), window, dumbFrom, snap.compactsAt)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -581,9 +585,9 @@ export const register: Register = (on, options) => {
 
     const legend = (
       <Box flexWrap="wrap">
-        {used.map(({ segment }, index) => (
-          <Box key={`legend-${index}`}>
-            {index > 0 && <Text dimColor> · </Text>}
+        {used.map(({ segment, color }, index) => (
+          <Box key={`legend-${index}`} marginRight={2}>
+            <Text color={color}>■ </Text>
             <Text dimColor>{shortLabel(segment.name)} </Text>
             <Text>{formatTokens(segment.tokens)}</Text>
           </Box>
@@ -609,7 +613,7 @@ export const register: Register = (on, options) => {
             <Box alignItems="center">
               {icon}
               {count}
-              <Box marginX={2}>{inlineBar(220, 20)}</Box>
+              <Box marginX={2}>{inlineBar(220, 20, false)}</Box>
               {pill}
             </Box>
             <Box alignItems="center">
@@ -636,7 +640,7 @@ export const register: Register = (on, options) => {
               <Box alignItems="center">
                 {icon}
                 {count}
-                <Box marginX={2}>{inlineBar(260, 24)}</Box>
+                <Box marginX={2}>{inlineBar(260, 24, true)}</Box>
                 {pill}
               </Box>
               <Box alignItems="center">

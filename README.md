@@ -26,11 +26,11 @@ Three layouts for the card:
 V1 · three-rows (default)
 ◔ 63.4k / 1M · 6%  ● Plenty of room                  Opus 5.5 · thinking default · compacted 0  ▾
 ██▌░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│╱╱
-Tools 28k · MCP 19k · Skills 8.5k · Prompt 4.7k                       ⎇ main · ✓ Nothing to commit
+■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ Prompt 4.7k                    ⎇ main · ✓ Nothing to commit
 
 V2 · two-rows
 ◔ 63.4k / 1M · 6%  █░░░░░░░░░░│░░░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · compacted 0  ▾
-Tools 28k · MCP 19k · Skills 8.5k · Prompt 4.7k                       ⎇ main · ✓ Nothing to commit
+■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ Prompt 4.7k                    ⎇ main · ✓ Nothing to commit
 
 V3 · one-row
 ◔ 63.4k / 1M · 6%  █░░░░░░░░│░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · compacted 0 · ⎇ main ✓  ▾
@@ -38,7 +38,7 @@ V3 · one-row
 
 Pick one with `/am-context-bar layout v1`, `v2` or `v3` (or `three-rows`, `two-rows`, `one-row`), or with the **Layout** setting in `/config`. It's one setting, so both ways stay in sync.
 
-The token count and the filled part of the bar take the zone's colour, so the bar turns from green to red as the window fills.
+In V1 and V2 the bar is split by category, each in its legend colour; in V3 it is one fill in the zone's colour, so it turns from green to red as the window fills. The token count always takes the zone's colour.
 
 The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitted changes` (staged, unstaged and untracked files) otherwise.
 

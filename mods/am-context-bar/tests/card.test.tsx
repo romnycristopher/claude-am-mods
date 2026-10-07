@@ -230,6 +230,9 @@ test('two-rows puts a short bar beside the count', { options: { layout: 'two-row
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '✓ Nothing to commit' })).toBeDefined()
     if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(260)
+    // V2 splits its bar by category, with matching legend squares.
+    if (surface === 'desktop') expect(String((await ui.find({ type: 'Svg' }))?.props?.source)).toMatch(/fill="#8467D7"/)
+    expect((await ui.findAll({ type: 'Text', text: '■ ' })).length).toBeGreaterThan(0)
     await ui.unmount()
   }
 })
@@ -242,6 +245,8 @@ test('one-row drops the legend and keeps a short git mark', { options: { layout:
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: '✓' })).toBeDefined()
     if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(220)
+    // V3 keeps a single fill in the zone's colour.
+    if (surface === 'desktop') expect(String((await ui.find({ type: 'Svg' }))?.props?.source)).toMatch(/class="z-clear"/)
     await ui.unmount()
   }
 })

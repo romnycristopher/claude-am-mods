@@ -362,8 +362,15 @@ test('the expanded card shows the runway once turns are measured', async ($, on)
     presentation: { isFullscreen: false, columns: 100 },
   })
   const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
-  // No turn measured yet: what's left to auto-compact.
-  expect(await ui.find({ type: 'Text', text: ' until auto-compact' })).toBeDefined()
+  // No turn measured yet: the tokens left to the dumb zone.
+  expect(await ui.find({ type: 'Text', text: '410k' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' to dumb zone' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' until auto-compact' })).toBeUndefined()
+
+  // The fill at load (90k) is the baseline: one turn gives a rate.
+  await $.session.measure({ context: { tokens: 100_000, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
+  expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '410k' })).toBeUndefined()
 
   for (const tokens of [70_000, 80_000, 90_000]) {
     await $.session.measure({ context: { tokens, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
@@ -372,7 +379,6 @@ test('the expanded card shows the runway once turns are measured', async ($, on)
   expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: '~41 turns' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' to dumb zone' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: ' until auto-compact' })).toBeUndefined()
 
   // Too narrow for both: the turns stay, the rate goes.
   const narrow = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 70 } })

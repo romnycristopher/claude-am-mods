@@ -1,6 +1,6 @@
 {
   "name": "am-context-bar",
-  "version": "0.3.14",
+  "version": "0.3.15",
   "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git. Three layouts. /am-context-bar on | off | layout v1|v2|v3.",
   "author": {
     "name": "romnycristopher"

@@ -420,6 +420,9 @@ async function refresh($: EngineInterface): Promise<void> {
     }
     await update($, snapshot, () => next)
     await update($, now, () => at)
+    // The fill at load is the first turn's baseline, so one turn gives a rate.
+    const tokens = usage.context.tokens
+    if (tokens !== undefined) await update($, growth, g => (g.lastTokens === null ? recordTurn(g, tokens) : g))
   } finally {
     isRefreshing = false
   }
@@ -835,7 +838,7 @@ export const register: Register = (on, options) => {
     )
     const dumbLow = Math.max(0, thresholds.dumb - 10)
     // The runway, top right: the fill a turn adds and the turns left to the
-    // next mark; before a turn has been measured, what's left to auto-compact.
+    // next mark; before a turn has been measured, the tokens left to it.
     // The rate goes first when the row is too narrow for both.
     const runway = runwayOf(deltas, snap.usedTokens, dumbFrom, snap.compactsAt)
     const rate = runway === null ? '' : `+${formatTokens(runway.perTurn)}/turn`
@@ -843,12 +846,13 @@ export const register: Register = (on, options) => {
     const headLeft = `◔ ${formatTokens(snap.usedTokens)} / ${formatTokens(window)} · ${Math.round(percent)}%  ● ${zone.label}`
     const headRoom = (e.props.bodyColumns ?? 80) - 4 - headLeft.length - 4
     const showRate = turnsLeft === '' || `${rate} · ${turnsLeft} to ${runway?.to}`.length <= headRoom
+    const nextMark = snap.usedTokens < dumbFrom ? { at: dumbFrom, to: 'dumb zone' } : snap.compactsAt === undefined ? undefined : { at: snap.compactsAt, to: 'auto-compact' }
     const runwayNote =
       runway === null ? (
-        snap.compactsAt === undefined ? null : (
+        nextMark === undefined ? null : (
           <Text>
-            <Text bold>{formatTokens(Math.max(0, snap.compactsAt - snap.usedTokens))}</Text>
-            <Text dimColor> until auto-compact</Text>
+            <Text bold>{formatTokens(Math.max(0, nextMark.at - snap.usedTokens))}</Text>
+            <Text dimColor> to {nextMark.to}</Text>
           </Text>
         )
       ) : (

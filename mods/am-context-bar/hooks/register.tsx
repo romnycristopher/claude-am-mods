@@ -432,6 +432,14 @@ async function refresh($: EngineInterface): Promise<void> {
   }
 }
 
+// The card's settings kept across sessions.
+async function restore($: EngineInterface): Promise<void> {
+  const storedVisible = await $.store.get('isVisible')
+  if (typeof storedVisible === 'boolean') await update($, isVisible, () => storedVisible)
+  const storedExpanded = await $.store.get('isExpanded')
+  if (typeof storedExpanded === 'boolean') await update($, isExpanded, () => storedExpanded)
+}
+
 async function setExpanded($: EngineInterface, value: boolean): Promise<void> {
   await update($, isExpanded, () => value)
   await $.store.set('isExpanded', value)
@@ -447,16 +455,26 @@ export const register: Register = (on, options) => {
       name: COMMAND,
       description: 'Context card above the prompt (on | off | expand | collapse)',
     })
-    const storedVisible = await $.store.get('isVisible')
-    if (typeof storedVisible === 'boolean') await update($, isVisible, () => storedVisible)
-    const storedExpanded = await $.store.get('isExpanded')
-    if (typeof storedExpanded === 'boolean') await update($, isExpanded, () => storedExpanded)
+    await restore($)
 
     // Keep reset countdowns current between turns.
     $.clock.every(60_000, () => {
       void $.clock.now().then(at => update($, now, () => at))
     })
     void refresh($)
+
+    return next(e)
+  })
+
+  // A /clear goes on under a new session with fresh state and no
+  // session.start, so the card restores itself here.
+  on('classic.SessionStart', async ($, e, next) => {
+    if (e.source === 'clear') {
+      await restore($)
+      await update($, compactions, () => 0)
+      await update($, growth, () => ({ lastTokens: null, deltas: [] }))
+      void refresh($)
+    }
 
     return next(e)
   })

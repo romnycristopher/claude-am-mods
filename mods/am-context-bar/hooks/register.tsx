@@ -680,7 +680,7 @@ export const register: Register = (on, options) => {
     if (!expanded) {
       if (layout === 'one-row') {
         return (
-          <Box justifyContent="space-between" alignItems="center" flexWrap="wrap" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
+          <Box justifyContent="space-between" alignItems="center" flexWrap="wrap" borderStyle="round" borderColor="subtle" marginTop={1} paddingX={1} {...card}>
             <Box alignItems="center">
               {icon}
               {count}
@@ -707,7 +707,7 @@ export const register: Register = (on, options) => {
 
       if (layout === 'two-rows') {
         return (
-          <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
+          <Box flexDirection="column" borderStyle="round" borderColor="subtle" marginTop={1} paddingX={1} {...card}>
             <Box justifyContent="space-between" alignItems="center" flexWrap="wrap">
               <Box alignItems="center">
                 {icon}
@@ -729,7 +729,7 @@ export const register: Register = (on, options) => {
       }
 
       return (
-        <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
+        <Box flexDirection="column" borderStyle="round" borderColor="subtle" marginTop={1} paddingX={1} {...card}>
           <Box justifyContent="space-between" alignItems="center" flexWrap="wrap">
             <Box alignItems="center">
               {icon}
@@ -776,7 +776,7 @@ export const register: Register = (on, options) => {
     const hasLimits = snap.session !== undefined || snap.weekly !== undefined
 
     return (
-      <Box flexDirection="column" borderStyle="round" borderColor="subtle" paddingX={1} {...card}>
+      <Box flexDirection="column" borderStyle="round" borderColor="subtle" marginTop={1} paddingX={1} {...card}>
         <Box justifyContent="space-between" alignItems="center">
           {title}
           <Box alignItems="center">

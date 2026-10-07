@@ -183,6 +183,7 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
     expect(await ui.find({ type: 'Text', text: '◔' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'CONTEXT' })).toBeUndefined()
     expect((await ui.find({ type: 'Box' }))?.props?.backgroundColor).toBe(surface === 'terminal' ? undefined : 'inverseText')
+    expect((await ui.find({ type: 'Box' }))?.props?.marginTop).toBe(1)
     expect((await ui.findAll({ type: 'Text', text: '90k' })).some(t => t.props?.color === 'success')).toBe(true)
     expect(await ui.find({ type: 'Text', text: /Plenty of room/ })).toBeDefined()
     const pct = (await ui.findAll({ type: 'Text', text: '9%' })).find(t => t.props?.bold === true)

@@ -422,7 +422,7 @@ test('the expanded card shows the runway once turns are measured', async ($, on)
   await ui.unmount()
 })
 
-test('after /clear the card restores its settings and starts the runway over', async ($, on) => {
+test('after /clear the card restores its settings, collapsed, and starts the runway over', async ($, on) => {
   on('classic.SessionStart', () => ({}))
   await startCard($, on)
   const run = (args: string) =>
@@ -437,10 +437,14 @@ test('after /clear the card restores its settings and starts the runway over', a
   await $.session.measure({ context: { tokens: 100_000, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
   expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeDefined()
 
+  expect(await ui.find({ type: 'Text', text: "WHAT'S USING IT" })).toBeDefined()
+
   // A /clear raises SessionStart with source clear, and no session.start.
   await $.classic.SessionStart({ source: 'clear' })
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeUndefined()
+  // It comes back collapsed.
+  expect(await ui.find({ type: 'Text', text: "WHAT'S USING IT" })).toBeUndefined()
 
   // A card the person hid stays hidden.
   await run('off')

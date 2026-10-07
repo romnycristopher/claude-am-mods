@@ -61,7 +61,7 @@ It fits the space above the prompt instead of scrolling: on a short terminal it 
 
 The cut-offs are settings (`nearingAt`, `dumbZoneAt`, `compactSoonAt`, in percent) in `/config`, or under `pluginConfigs` in settings.
 
-- `/am-context-bar` toggles the card; `on` and `off` set it; `layout v1|v2|v3` picks the layout; `expand` and `collapse` pick the view. Both choices are remembered across sessions.
+- `/am-context-bar` toggles the card; `on` and `off` set it; `layout v1|v2|v3` picks the layout; `expand` and `collapse` pick the view. Both choices are remembered across sessions; a `/clear` brings the card back collapsed.
 - Text uses theme colours, so it follows light and dark themes. On the desktop the bars are vector drawings that switch palette with the app's colour scheme; in the terminal they are drawn with block characters.
 - Session and weekly limits appear on a Claude subscription, once the first response of the session reports them; until then the desktop shows the last reading, while its window hasn't reset.
 - Thinking shows the effort the last main request was sent with (`default` until the first one).

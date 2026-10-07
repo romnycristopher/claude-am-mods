@@ -480,10 +480,11 @@ export const register: Register = (on, options) => {
   })
 
   // A /clear goes on under a new session with fresh state and no
-  // session.start, so the card restores itself here.
+  // session.start, so the card restores itself here, collapsed.
   on('classic.SessionStart', async ($, e, next) => {
     if (e.source === 'clear') {
       await restore($)
+      await setExpanded($, false)
       await update($, compactions, () => 0)
       await update($, growth, () => ({ lastTokens: null, deltas: [] }))
       void refresh($)

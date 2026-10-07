@@ -3,7 +3,7 @@
   "owner": {
     "name": "romnycristopher"
   },
-  "description": "Claude Code mods by Awesome Media: live UI for the terminal and the desktop Code tab.",
+  "description": "Claude Code mods by Romny Cristopher: live UI for the terminal.",
   "plugins": [
     {
       "name": "am-context-bar",

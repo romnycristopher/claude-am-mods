@@ -181,7 +181,12 @@ export const shortLabel = (name: string): string => {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
-const longLabel = (name: string): string => name.replace(/^custom /i, '').replace(/^\w/, c => c.toUpperCase())
+// The expanded table's labels: full names, but short enough for its column.
+export const longLabel = (name: string): string =>
+  name
+    .replace(/^custom /i, '')
+    .replace(/^mcp (server )?instructions$/i, 'MCP instructions')
+    .replace(/^\w/, c => c.toUpperCase())
 
 // ── Collapsed legend ───────────────────────────────────────────────────────
 // The collapsed legend folds related categories together and leaves out the
@@ -659,14 +664,20 @@ export const register: Register = (on, options) => {
       return <Svg source={miniBarSvg(fraction, color)} alt={`${Math.round(fraction * 100)}% of the largest`} />
     }
 
+    // A pipe sets the toggle apart from the card's information.
     const toggle = (
-      <Button
-        key="toggle"
-        plain
-        dimColor
-        label={expanded ? '▴' : '▾'}
-        onPress={() => void setExpanded($, !expanded)}
-      />
+      <Box alignItems="center">
+        <Box marginRight={1}>
+          <Text color="subtle">│</Text>
+        </Box>
+        <Button
+          key="toggle"
+          plain
+          dimColor
+          label={expanded ? '▴' : '▾'}
+          onPress={() => void setExpanded($, !expanded)}
+        />
+      </Box>
     )
 
     // The card is labelled by its glyph alone.
@@ -912,9 +923,12 @@ export const register: Register = (on, options) => {
     const other = folded.reduce((sum, u) => sum + u.segment.tokens, 0)
     const tableRow = (key: string, label: string, color: string, tokens: number) => (
       <Box key={key} alignItems="center">
+        {/* A label longer than its column is cut, not wrapped onto a second row. */}
         <Box width={22}>
-          <Text color={color}>■ </Text>
-          <Text>{label}</Text>
+          <Text wrap="truncate-end">
+            <Text color={color}>■ </Text>
+            <Text>{label}</Text>
+          </Text>
         </Box>
         <Box flexGrow={1} marginX={1}>
           {miniBar(tokens / largest, color)}

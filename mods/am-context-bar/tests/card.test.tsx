@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, longLabel, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 import type { Growth } from '../types'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
@@ -100,6 +100,8 @@ test('formats labels and bars', async () => {
   expect(shortLabel('MCP tools')).toBe('MCP')
   expect(shortLabel('Memory files')).toBe('Memory')
   expect(shortLabel('MCP server instructions')).toBe('MCP instr.')
+  expect(longLabel('MCP server instructions')).toBe('MCP instructions')
+  expect(longLabel('custom agents')).toBe('Agents')
   const runs = terminalBar(20, [{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000)
   expect(runs.map(r => r.text).join('')).toHaveLength(20)
   expect(runs[0]).toEqual({ text: '██', color: '#2F9C8F' })

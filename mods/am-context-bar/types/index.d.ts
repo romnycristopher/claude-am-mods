@@ -24,6 +24,9 @@ export type Snapshot = {
   takenAt: number
 }
 
+/** The context fill at the last turn, and how much each recent turn added. */
+export type Growth = { lastTokens: number | null; deltas: number[] }
+
 declare module 'claude-code' {
   interface PluginState {
     'am-context-bar': {
@@ -33,6 +36,7 @@ declare module 'claude-code' {
       effort: string | null
       compactions: number
       now: number
+      growth: Growth
     }
   }
 }

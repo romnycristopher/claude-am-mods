@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { Color, EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { Limit, Segment, Snapshot } from '../types'
+import type { Growth, Limit, Segment, Snapshot } from '../types'
 
 const COMMAND = 'am-context-bar'
 
@@ -11,6 +11,7 @@ const snapshot = atom({ plugin: 'am-context-bar', key: 'snapshot' } as const, nu
 const effort = atom({ plugin: 'am-context-bar', key: 'effort' } as const, null)
 const compactions = atom({ plugin: 'am-context-bar', key: 'compactions' } as const, 0)
 const now = atom({ plugin: 'am-context-bar', key: 'now' } as const, 0)
+const growth = atom({ plugin: 'am-context-bar', key: 'growth' } as const, { lastTokens: null, deltas: [] } as Growth)
 
 // ── Palette ────────────────────────────────────────────────────────────────
 // Category colours are mid-tones that read on light and dark alike. Everything
@@ -230,6 +231,35 @@ export const formatReset = (resetsAt: string | undefined, at: number): string | 
   if (h > 0) return `${h}h ${m}m`
 
   return `${m}m`
+}
+
+// ── Runway ─────────────────────────────────────────────────────────────────
+// How fast the context fills: the average a turn added over the last few, and
+// how many turns like them are left before the next mark (the dumb zone, then
+// auto-compact). A fill that shrank was compacted, so the count starts over.
+const RUNWAY_TURNS = 5
+
+export const recordTurn = (g: Growth, tokens: number): Growth => {
+  if (g.lastTokens === null || tokens < g.lastTokens) return { lastTokens: tokens, deltas: [] }
+  const delta = tokens - g.lastTokens
+
+  return { lastTokens: tokens, deltas: delta > 0 ? [...g.deltas, delta].slice(-RUNWAY_TURNS) : g.deltas }
+}
+
+export type Runway = { perTurn: number; turns?: number; to?: 'dumb zone' | 'auto-compact' }
+
+export const runwayOf = (deltas: number[], used: number, dumbFrom: number, compactsAt?: number): Runway | null => {
+  if (deltas.length === 0) return null
+  const perTurn = Math.round(deltas.reduce((sum, d) => sum + d, 0) / deltas.length)
+  const mark =
+    used < dumbFrom
+      ? { at: dumbFrom, to: 'dumb zone' as const }
+      : compactsAt !== undefined && used < compactsAt
+        ? { at: compactsAt, to: 'auto-compact' as const }
+        : undefined
+  if (mark === undefined) return { perTurn }
+
+  return { perTurn, turns: Math.max(1, Math.ceil((mark.at - used) / perTurn)), to: mark.to }
 }
 
 // ── Bars ───────────────────────────────────────────────────────────────────
@@ -460,6 +490,9 @@ export const register: Register = (on, options) => {
   })
 
   on('session.measure', async ($, e, next) => {
+    // Measured after each main-thread turn: what the turn added.
+    const tokens = e.context.tokens
+    if (e.changed.includes('context') && tokens !== undefined) await update($, growth, g => recordTurn(g, tokens))
     void refresh($)
 
     return next(e)
@@ -492,6 +525,7 @@ export const register: Register = (on, options) => {
     const level = (await read($, effort)) ?? 'default'
     const compacted = await read($, compactions)
     const at = (await read($, now)) || snap.takenAt
+    const { deltas } = await read($, growth)
 
     const { Box, Text, Button } = $.ui.resolve(e)
     const window = snap.windowTokens || 1
@@ -800,6 +834,31 @@ export const register: Register = (on, options) => {
       </Box>
     )
     const dumbLow = Math.max(0, thresholds.dumb - 10)
+    // The runway, top right: the fill a turn adds and the turns left to the
+    // next mark; before a turn has been measured, what's left to auto-compact.
+    // The rate goes first when the row is too narrow for both.
+    const runway = runwayOf(deltas, snap.usedTokens, dumbFrom, snap.compactsAt)
+    const rate = runway === null ? '' : `+${formatTokens(runway.perTurn)}/turn`
+    const turnsLeft = runway?.turns === undefined ? '' : `~${runway.turns} ${runway.turns === 1 ? 'turn' : 'turns'}`
+    const headLeft = `◔ ${formatTokens(snap.usedTokens)} / ${formatTokens(window)} · ${Math.round(percent)}%  ● ${zone.label}`
+    const headRoom = (e.props.bodyColumns ?? 80) - 4 - headLeft.length - 4
+    const showRate = turnsLeft === '' || `${rate} · ${turnsLeft} to ${runway?.to}`.length <= headRoom
+    const runwayNote =
+      runway === null ? (
+        snap.compactsAt === undefined ? null : (
+          <Text>
+            <Text bold>{formatTokens(Math.max(0, snap.compactsAt - snap.usedTokens))}</Text>
+            <Text dimColor> until auto-compact</Text>
+          </Text>
+        )
+      ) : (
+        <Text>
+          {showRate && <Text dimColor>{rate}</Text>}
+          {showRate && turnsLeft !== '' && <Text dimColor> · </Text>}
+          {turnsLeft !== '' && <Text bold>{turnsLeft}</Text>}
+          {turnsLeft !== '' && <Text dimColor> to {runway.to}</Text>}
+        </Text>
+      )
     const largest = used[0]?.segment.tokens ?? 1
     const hasLimits = snap.session !== undefined || snap.weekly !== undefined
     const fit = fitExpanded(e.props.maxRows > 0 ? e.props.maxRows : Infinity, used.length, hasLimits)
@@ -833,14 +892,7 @@ export const register: Register = (on, options) => {
             <Box marginLeft={2}>{pill}</Box>
           </Box>
           <Box alignItems="center">
-            {snap.compactsAt !== undefined && (
-              <Box marginRight={1}>
-                <Text>
-                  <Text bold>{formatTokens(Math.max(0, snap.compactsAt - snap.usedTokens))}</Text>
-                  <Text dimColor> until auto-compact</Text>
-                </Text>
-              </Box>
-            )}
+            {runwayNote !== null && <Box marginRight={1}>{runwayNote}</Box>}
             {toggle}
           </Box>
         </Box>

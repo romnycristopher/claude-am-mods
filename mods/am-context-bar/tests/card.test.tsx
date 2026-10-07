@@ -1,7 +1,8 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, fitExpanded, formatReset, parseStatus, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import type { Growth } from '../types'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
   name,
@@ -228,6 +229,7 @@ const startCard = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
   on('command.register', ($, e) => ({ value: { command: e.name } }))
   on('session.usage', () => ({ value: USAGE }))
   on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
   on('process.run', ($, e) => ({
     value: {
       exitCode: 0,
@@ -331,4 +333,51 @@ test('git status counts changes and commits ahead and behind', async () => {
   // No upstream: no counts, so nothing to push or pull is shown.
   expect(parseStatus('# branch.oid 514a304\n# branch.head topic\n')).toEqual({ changes: 0 })
   expect(parseStatus('')).toEqual({ changes: 0 })
+})
+
+test('the runway averages recent turns and counts the turns to the next mark', async () => {
+  let g = recordTurn({ lastTokens: null, deltas: [] }, 60_000)
+  expect(g).toEqual({ lastTokens: 60_000, deltas: [] })
+  g = recordTurn(recordTurn(g, 70_000), 82_000)
+  expect(g.deltas).toEqual([10_000, 12_000])
+  // A fill that shrank was compacted: the count starts over.
+  expect(recordTurn(g, 20_000)).toEqual({ lastTokens: 20_000, deltas: [] })
+  // Only the last five turns count.
+  const start: Growth = { lastTokens: 0, deltas: [] }
+  expect([1, 2, 3, 4, 5, 6, 7].reduce((acc, n) => recordTurn(acc, n * 1000), start).deltas).toHaveLength(5)
+
+  expect(runwayOf([], 90_000, 500_000, 950_000)).toBeNull()
+  expect(runwayOf([10_000, 12_000], 90_000, 500_000, 950_000)).toEqual({ perTurn: 11_000, turns: 38, to: 'dumb zone' })
+  expect(runwayOf([10_000], 600_000, 500_000, 950_000)).toEqual({ perTurn: 10_000, turns: 35, to: 'auto-compact' })
+  expect(runwayOf([10_000], 960_000, 500_000, 950_000)).toEqual({ perTurn: 10_000 })
+  expect(runwayOf([10_000], 499_000, 500_000)).toEqual({ perTurn: 10_000, turns: 1, to: 'dumb zone' })
+})
+
+test('the expanded card shows the runway once turns are measured', async ($, on) => {
+  await startCard($, on)
+  await $.command.run({
+    command: 'am-context-bar',
+    args: 'expand',
+    origin: { kind: 'composer' },
+    presentation: { isFullscreen: false, columns: 100 },
+  })
+  const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
+  // No turn measured yet: what's left to auto-compact.
+  expect(await ui.find({ type: 'Text', text: ' until auto-compact' })).toBeDefined()
+
+  for (const tokens of [70_000, 80_000, 90_000]) {
+    await $.session.measure({ context: { tokens, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
+  }
+  // 10k a turn, 90k used, the dumb zone from 500k: 41 turns.
+  expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '~41 turns' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' to dumb zone' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' until auto-compact' })).toBeUndefined()
+
+  // Too narrow for both: the turns stay, the rate goes.
+  const narrow = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 70 } })
+  expect(await narrow.find({ type: 'Text', text: '~41 turns' })).toBeDefined()
+  expect(await narrow.find({ type: 'Text', text: '+10k/turn' })).toBeUndefined()
+  await narrow.unmount()
+  await ui.unmount()
 })

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, formatReset, layoutFrom, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, formatReset, layoutFrom, legendOf, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
   name,
@@ -98,6 +98,7 @@ test('formats labels and bars', async () => {
   expect(shortLabel('System tools')).toBe('Tools')
   expect(shortLabel('MCP tools')).toBe('MCP')
   expect(shortLabel('Memory files')).toBe('Memory')
+  expect(shortLabel('MCP server instructions')).toBe('MCP instr.')
   const runs = terminalBar(20, [{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000)
   expect(runs.map(r => r.text).join('')).toHaveLength(20)
   expect(runs[0]).toEqual({ text: '██', color: '#2F9C8F' })
@@ -106,6 +107,33 @@ test('formats labels and bars', async () => {
   expect(svg).toMatch(/prefers-color-scheme:dark/)
   expect(contextBarSvg([{ tokens: 640_000, color: 'zone:dumb' }], 1_000_000, 500_000)).toMatch(/<rect x="0.00" width="640.00" height="12" class="z-dumb"\/>/)
   expect(svg).toMatch(/class="d" x="500.00"/)
+  expect(svg).toMatch(/viewBox="0 0 1000 12"/)
+  // Padding adds clear space above and below without moving the bar.
+  expect(contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000, 0.75)).toMatch(/height="30" viewBox="0 -9 1000 30"/)
+})
+
+test('the collapsed legend groups, drops small parts and pins Messages last', async () => {
+  const used = (name: string, tokens: number) => ({ name, tokens, kind: 'used' as const })
+  const legend = legendOf([
+    used('System prompt', 3_900),
+    used('System tools', 27_700),
+    used('MCP server instructions', 1_800),
+    used('MCP tools', 807),
+    used('Messages', 488),
+    used('Memory files', 46),
+    used('Skills', 8_400),
+    { name: 'Free space', tokens: 900_000, kind: 'free' },
+  ])
+  expect(legend.shown.map(i => `${i.label} ${i.tokens}`)).toEqual(['Tools 27700', 'Skills 8400', 'System 3946', 'MCP 2607'])
+  expect(legend.shown.find(i => i.label === 'MCP')?.color).toBe('#8467D7')
+  expect(legend.hidden).toEqual([])
+  expect(legend.messages).toEqual({ label: 'Messages', tokens: 488, color: '#8C877C' })
+
+  // A small fixed part leaves the legend; Messages stays however small.
+  const small = legendOf([used('System tools', 50_000), used('Skills', 900), used('Messages', 0)])
+  expect(small.shown.map(i => i.label)).toEqual(['Tools'])
+  expect(small.hidden.map(i => i.label)).toEqual(['Skills'])
+  expect(small.messages?.tokens).toBe(0)
 })
 
 test('/am-context-bar shows the card, collapsed then expanded, on every surface', async ($, on) => {
@@ -160,8 +188,11 @@ test('/am-context-bar shows the card, collapsed then expanded, on every surface'
     const pct = (await ui.findAll({ type: 'Text', text: '9%' })).find(t => t.props?.bold === true)
     expect(pct?.props?.color).toBe('suggestion')
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: 'Messages ' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '│' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'main' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /2 uncommitted changes/ })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '1h 10m' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: /dumb zone/ })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: /deferred/i })).toBeUndefined()
     expect(await ui.find({ type: 'Text', text: "WHAT'S USING IT" })).toBeUndefined()
@@ -229,6 +260,7 @@ test('two-rows puts a short bar beside the count', { options: { layout: 'two-row
     expect(await ui.find({ type: 'Text', text: 'Opus 5.5' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '✓ Nothing to commit' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: '1h 10m' })).toBeDefined()
     if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(260)
     // V2 splits its bar by category, with matching legend squares.
     if (surface === 'desktop') expect(String((await ui.find({ type: 'Svg' }))?.props?.source)).toMatch(/fill="#8467D7"/)
@@ -243,6 +275,7 @@ test('one-row drops the legend and keeps a short git mark', { options: { layout:
     const ui = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
     expect(await ui.find({ type: 'Text', text: /Plenty of room/ })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: 'MCP ' })).toBeUndefined()
+    expect(await ui.find({ type: 'Text', text: '1h 10m' })).toBeDefined()
     expect(await ui.find({ type: 'Text', text: '✓' })).toBeDefined()
     if (surface === 'desktop') expect((await ui.find({ type: 'Svg' }))?.props?.width).toBe(220)
     // V3 keeps a single fill in the zone's colour.

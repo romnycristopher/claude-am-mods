@@ -24,21 +24,25 @@ Three layouts for the card:
 
 ```
 V1 · three-rows (default)
-◔ 63.4k / 1M · 6%  ● Plenty of room                  Opus 5.5 · thinking default · compacted 0  ▾
+◔ 63.4k / 1M · 6%  ● Plenty of room                  Opus 5.5 · thinking default · resets 1h 10m · ↻ 0  ▾
 ██▌░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│╱╱
-■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ Prompt 4.7k                    ⎇ main · ✓ Nothing to commit
+■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ System 4.7k  │  ■ Messages 3.2k   ⎇ main · ✓ Nothing to commit
 
 V2 · two-rows
-◔ 63.4k / 1M · 6%  █░░░░░░░░░░│░░░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · compacted 0  ▾
-■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ Prompt 4.7k                    ⎇ main · ✓ Nothing to commit
+◔ 63.4k / 1M · 6%  █░░░░░░░░░░│░░░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · resets 1h 10m · ↻ 0  ▾
+■ Tools 28k  ■ MCP 19k  ■ Skills 8.5k  ■ System 4.7k  │  ■ Messages 3.2k   ⎇ main · ✓ Nothing to commit
 
 V3 · one-row
-◔ 63.4k / 1M · 6%  █░░░░░░░░│░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · compacted 0 · ⎇ main ✓  ▾
+◔ 63.4k / 1M · 6%  █░░░░░░░░│░░░░░░░░│╱  ● Plenty of room   Opus 5.5 · thinking default · resets 1h 10m · ↻ 0 · ⎇ main ✓  ▾
 ```
 
 Pick one with `/am-context-bar layout v1`, `v2` or `v3` (or `three-rows`, `two-rows`, `one-row`), or with the **Layout** setting in `/config`. It's one setting, so both ways stay in sync.
 
-In V1 and V2 the bar is split by category, each in its legend colour; in V3 it is one fill in the zone's colour, so it turns from green to red as the window fills. The token count always takes the zone's colour.
+In V1 and V2 the legend stays short: MCP tools and instructions show as one **MCP** entry, the system prompt and memory files as **System**, and fixed parts under 3% of what's used are left out of the legend (they stay in the bar). **Messages**, the part that grows as you talk, always shows, last, after a `│`. The expanded view lists every category.
+
+In V1 and V2 the bar is split the same way, each part in its legend colour; in V3 it is one fill in the zone's colour, so it turns from green to red as the window fills. The token count always takes the zone's colour.
+
+`resets 1h 10m` is when the session limit resets; `↻ 0` counts the times this session has been compacted.
 
 The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitted changes` (staged, unstaged and untracked files) otherwise.
 

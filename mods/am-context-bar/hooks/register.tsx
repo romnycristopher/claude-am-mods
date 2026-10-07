@@ -50,6 +50,11 @@ const PERCENT: Color = 'suggestion'
 
 export const zonePaint = (id: ZoneId): string => `zone:${id}`
 
+// V1's rows sit apart on the desktop: clear space above and below its bar,
+// in bar heights (0.75 of the 8px bar is 6px). The terminal can only space
+// by whole rows, so it keeps them together.
+const ROW_GAP = 0.75
+
 // ── Zones ──────────────────────────────────────────────────────────────────
 export type ZoneId = 'clear' | 'nearing' | 'dumb' | 'compact'
 export type Zone = { id: ZoneId; label: string; color: Color }
@@ -153,12 +158,47 @@ export const shortLabel = (name: string): string => {
     .replace(/^system /i, '')
     .replace(/ files$/i, '')
     .replace(/^mcp tools$/i, 'MCP')
-    .replace(/^mcp instructions$/i, 'MCP instr.')
+    .replace(/^mcp (server )?instructions$/i, 'MCP instr.')
 
   return s.charAt(0).toUpperCase() + s.slice(1)
 }
 
 const longLabel = (name: string): string => name.replace(/^custom /i, '').replace(/^\w/, c => c.toUpperCase())
+
+// ── Collapsed legend ───────────────────────────────────────────────────────
+// The collapsed legend folds related categories together and leaves out the
+// small fixed ones (they stay in the bar), so it fits on one line. Messages is
+// the part that grows turn by turn, so it always shows, last, after a divider.
+export type LegendItem = { label: string; tokens: number; color: string }
+
+const GROUPS: [RegExp, string, string][] = [
+  [/mcp/i, 'MCP', '#8467D7'],
+  [/system prompt|memory/i, 'System', '#4F7FD9'],
+]
+const MIN_SHARE = 3
+
+export const legendOf = (segments: Segment[]) => {
+  const items: LegendItem[] = []
+  segments
+    .filter(s => s.kind === 'used' && s.tokens > 0)
+    .forEach((segment, index) => {
+      if (/message/i.test(segment.name)) return
+      const group = GROUPS.find(([pattern]) => pattern.test(segment.name))
+      const label = group ? group[1] : shortLabel(segment.name)
+      const existing = items.find(item => item.label === label)
+      if (existing) existing.tokens += segment.tokens
+      else items.push({ label, tokens: segment.tokens, color: group ? group[2] : colorOf(segment, index) })
+    })
+  items.sort((a, b) => b.tokens - a.tokens)
+
+  const found = segments.find(s => s.kind === 'used' && /message/i.test(s.name))
+  const messages = found && { label: 'Messages', tokens: found.tokens, color: colorOf(found, 0) }
+  const total = items.reduce((sum, item) => sum + item.tokens, 0) + (messages?.tokens ?? 0)
+  const shown = items.filter((item, index) => index === 0 || percentOf(item.tokens, total) >= MIN_SHARE)
+  const hidden = items.filter(item => !shown.includes(item))
+
+  return { shown, hidden, messages }
+}
 
 export const formatReset = (resetsAt: string | undefined, at: number): string | null => {
   if (!resetsAt) return null
@@ -178,9 +218,11 @@ export const formatReset = (resetsAt: string | undefined, at: number): string | 
 // ── Bars ───────────────────────────────────────────────────────────────────
 type Part = { tokens: number; color: string }
 
-export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, compactsAt?: number): string => {
+// `pad` is clear space above and below the bar, in bar heights.
+export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, compactsAt?: number, pad = 0): string => {
   const W = 1000
   const H = 12
+  const P = H * pad
   const x = (t: number) => Math.max(0, Math.min(W, (t / Math.max(1, window)) * W))
   let cx = 0
   const rects = parts
@@ -202,7 +244,7 @@ export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, c
     (compactsAt === undefined ? '' : `<rect class="m" x="${(dz1 - 1.5).toFixed(2)}" width="3" height="${H}"/>`)
 
   return (
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">` +
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H + 2 * P}" viewBox="0 ${-P} ${W} ${H + 2 * P}" preserveAspectRatio="none">` +
     SVG_STYLE +
     `<defs><clipPath id="r"><rect width="${W}" height="${H}" rx="6"/></clipPath>` +
     `<pattern id="h" width="6" height="${H}" patternUnits="userSpaceOnUse"><path d="M0 ${H} L6 0" class="h" stroke-width="1.5"/></pattern></defs>` +
@@ -432,9 +474,14 @@ export const register: Register = (on, options) => {
     const free = snap.segments.find(s => s.kind === 'free')?.tokens ?? Math.max(0, window - snap.usedTokens)
     const buffer = snap.segments.find(s => s.kind === 'buffer')?.tokens
     const usedTotal = used.reduce((sum, u) => sum + u.segment.tokens, 0) || snap.usedTokens
-    // V1 and V2 split the bar by category, in the legend's colours; V3 has room
-    // only for one fill, in the zone's colour.
-    const composed = used.map(({ segment, color }) => ({ tokens: segment.tokens, color }))
+    // V1 and V2 split the bar by the legend's groups, in its colours; V3 has
+    // room only for one fill, in the zone's colour. Expanded splits it by
+    // category, like its table.
+    const legendParts = legendOf(snap.segments)
+    const composed = [...legendParts.shown, ...legendParts.hidden, ...(legendParts.messages ? [legendParts.messages] : [])]
+      .filter(item => item.tokens > 0)
+      .map(({ tokens, color }) => ({ tokens, color }))
+    const detailed = used.map(({ segment, color }) => ({ tokens: segment.tokens, color }))
     // A white card in a light theme, the theme's darkest in a dark one: the
     // theme's inverse-text colour is its page background. The terminal keeps
     // its own background.
@@ -460,24 +507,26 @@ export const register: Register = (on, options) => {
       )
 
     // The full-width bar: vector on remote surfaces, glyph cells on the terminal.
-    let bar
-    if (e.surface === 'terminal') {
-      const cells = Math.max(10, (e.props.bodyColumns ?? 80) - 4)
-      bar = (
-        <Text>
-          {terminalBar(cells, composed, window, dumbFrom, snap.compactsAt).map(run => (
-            <Text color={run.color} dimColor={run.isDim}>
-              {run.text}
-            </Text>
-          ))}
-        </Text>
-      )
-    } else {
+    const fullBar = (parts: { tokens: number; color: string }[], pad = 0) => {
+      if (e.surface === 'terminal') {
+        const cells = Math.max(10, (e.props.bodyColumns ?? 80) - 4)
+
+        return (
+          <Text>
+            {terminalBar(cells, parts, window, dumbFrom, snap.compactsAt).map(run => (
+              <Text color={run.color} dimColor={run.isDim}>
+                {run.text}
+              </Text>
+            ))}
+          </Text>
+        )
+      }
       const { Svg } = $.ui.resolve(e)
-      bar = (
+
+      return (
         <Svg
-          height={8}
-          source={contextBarSvg(composed, window, dumbFrom, snap.compactsAt)}
+          height={8 * (1 + 2 * pad)}
+          source={contextBarSvg(parts, window, dumbFrom, snap.compactsAt, pad)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -532,13 +581,24 @@ export const register: Register = (on, options) => {
       </Text>
     )
 
+    // When the session limit resets, beside the thinking level.
+    const resetIn = formatReset(snap.session?.resetsAt, at)
+    const sessionReset =
+      resetIn === null ? null : (
+        <Text>
+          <Text dimColor> · resets </Text>
+          <Text>{resetIn}</Text>
+        </Text>
+      )
+
     const metaStack = (
       <Box marginRight={1}>
         <Text>
           <Text>{modelLabel(snap.model)}</Text>
           <Text dimColor> · thinking </Text>
           <Text>{level}</Text>
-          <Text dimColor> · compacted </Text>
+          {sessionReset}
+          <Text dimColor> · ↻ </Text>
           <Text>{String(compacted)}</Text>
         </Text>
       </Box>
@@ -583,15 +643,26 @@ export const register: Register = (on, options) => {
       </Text>
     )
 
+    const legendItem = (item: LegendItem, key: string) => (
+      <Box key={key} marginRight={2}>
+        <Text color={item.color}>■ </Text>
+        <Text dimColor>{item.label} </Text>
+        <Text>{formatTokens(item.tokens)}</Text>
+      </Box>
+    )
     const legend = (
       <Box flexWrap="wrap">
-        {used.map(({ segment, color }, index) => (
-          <Box key={`legend-${index}`} marginRight={2}>
-            <Text color={color}>■ </Text>
-            <Text dimColor>{shortLabel(segment.name)} </Text>
-            <Text>{formatTokens(segment.tokens)}</Text>
+        {legendParts.shown.map((item, index) => legendItem(item, `legend-${index}`))}
+        {legendParts.messages !== undefined && (
+          <Box key="legend-messages">
+            {legendParts.shown.length > 0 && (
+              <Box marginRight={2}>
+                <Text color="subtle">│</Text>
+              </Box>
+            )}
+            {legendItem(legendParts.messages, 'messages')}
           </Box>
-        ))}
+        )}
       </Box>
     )
 
@@ -622,7 +693,8 @@ export const register: Register = (on, options) => {
                   <Text>{modelLabel(snap.model)}</Text>
                   <Text dimColor> · thinking </Text>
                   <Text>{level}</Text>
-                  <Text dimColor> · compacted </Text>
+                  {sessionReset}
+                  <Text dimColor> · ↻ </Text>
                   <Text>{String(compacted)}</Text>
                   {gitShort}
                 </Text>
@@ -670,7 +742,7 @@ export const register: Register = (on, options) => {
               {toggle}
             </Box>
           </Box>
-          {bar}
+          {fullBar(composed, ROW_GAP)}
           <Box justifyContent="space-between" flexWrap="wrap">
             {legend}
             {gitStatus}
@@ -741,7 +813,7 @@ export const register: Register = (on, options) => {
             {snap.compactsAt !== undefined && <Text dimColor>auto-compact at {formatTokens(snap.compactsAt)}▕</Text>}
           </Box>
         </Box>
-        {bar}
+        {fullBar(detailed)}
         <Box flexWrap="wrap">
           <Box marginRight={2}>
             <Text>■ </Text>

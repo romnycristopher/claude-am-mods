@@ -48,7 +48,7 @@ The git note reads `✓ Nothing to commit` on a clean tree and `● 3 uncommitte
 
 Expanded (press `▾`, or `/am-context-bar expand`): the count and the runway, how fast the context fills and how long that leaves (`+8.2k/turn · ~12 turns to dumb zone`, then turns to auto-compact once past it; the average of the last five turns, starting over after a compaction, and the tokens left to that mark until a turn has been measured), a bar with the dumb zone and auto-compact marked, a legend (used, free, where the dumb zone starts: around 40–50% by default (400k–500k on a 1M window), ten points below the **Dumb zone starts at** setting, reserved buffer), a "what's using it" table with a bar, tokens and share per category, session and weekly limits, and model, thinking and compactions, with the branch and commit status at the right.
 
-It fits the space above the prompt instead of scrolling: on a short terminal it drops its spacer lines, then the blank line above it, then folds the smallest categories into one **Other** row.
+It fits the space above the prompt instead of scrolling: on a short terminal it drops its spacer lines, then the blank line above it, then folds the smallest categories into one **Other** row. The desktop keeps its spacing and every row.
 
 **Zones.** The token count and the status pill change colour with how full the window is:
 
@@ -63,7 +63,7 @@ The cut-offs are settings (`nearingAt`, `dumbZoneAt`, `compactSoonAt`, in percen
 
 - `/am-context-bar` toggles the card; `on` and `off` set it; `layout v1|v2|v3` picks the layout; `expand` and `collapse` pick the view. Both choices are remembered across sessions.
 - Text uses theme colours, so it follows light and dark themes. On the desktop the bars are vector drawings that switch palette with the app's colour scheme; in the terminal they are drawn with block characters.
-- Session and weekly limits appear on a Claude subscription, once the first response of the session reports them.
+- Session and weekly limits appear on a Claude subscription, once the first response of the session reports them; until then the desktop shows the last reading, while its window hasn't reset.
 - Thinking shows the effort the last main request was sent with (`default` until the first one).
 
 ## Developing

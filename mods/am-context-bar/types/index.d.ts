@@ -13,6 +13,8 @@ export type Snapshot = {
   compactsAt?: number
   session?: Limit
   weekly?: Limit
+  /** The last reading of the limits, kept across sessions, for before a response reports them. */
+  lastLimits?: { session?: Limit; weekly?: Limit }
   model: string
   branch: string | null
   isDirty: boolean

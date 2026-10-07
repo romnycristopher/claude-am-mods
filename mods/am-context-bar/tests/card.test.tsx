@@ -318,12 +318,46 @@ test('a short band folds the smallest categories into Other', async ($, on) => {
     expect(await roomy.find({ type: 'Text', text: /^Other/ })).toBeUndefined()
     await roomy.unmount()
 
+    // The desktop grows the band, so its card keeps every row and its spacing.
     const short = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND, props: { ...BAND.props, maxRows: 10 } })
     expect(await short.find({ type: 'Text', text: 'MCP tools' })).toBeDefined()
-    expect(await short.find({ type: 'Text', text: 'System tools' })).toBeUndefined()
-    expect(await short.find({ type: 'Text', text: 'Other (2)' })).toBeDefined()
-    expect((await short.find({ type: 'Box' }))?.props?.marginTop).toBe(0)
+    expect((await short.find({ type: 'Text', text: 'System tools' })) !== undefined).toBe(surface !== 'terminal')
+    expect((await short.find({ type: 'Text', text: 'Other (2)' })) !== undefined).toBe(surface === 'terminal')
+    expect((await short.find({ type: 'Box' }))?.props?.marginTop).toBe(surface === 'terminal' ? 0 : 1)
     await short.unmount()
+  }
+})
+
+test('before a response reports the limits, the desktop shows the last reading', async ($, on) => {
+  let rateLimits = USAGE.rateLimits
+  mock.clock(on, { now: Date.parse('2026-10-06T13:50:00Z') })
+  mock.store(on)
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+
+    return <Text>engine</Text>
+  })
+  on('session.start', ($, e) => ({ cwd: e.cwd }))
+  on('command.register', ($, e) => ({ value: { command: e.name } }))
+  on('session.usage', () => ({ value: { ...USAGE, rateLimits } }))
+  on('session.model', () => ({ value: 'claude-opus-5-5' }))
+  on('session.measure', ($, e) => ({ changed: e.changed }))
+  on('process.run', () => ({
+    value: { exitCode: 0, stdout: 'main\n', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+  }))
+  await $.session.start({ cwd: '/repo', surface: 'desktop', isInteractive: true })
+  const run = (args: string) =>
+    $.command.run({ command: 'am-context-bar', args, origin: { kind: 'composer' }, presentation: { isFullscreen: false, columns: 100 } })
+  await run('expand')
+
+  // A new session: no reading yet.
+  rateLimits = []
+  await run('expand')
+  for (const surface of ['terminal', 'desktop'] as const) {
+    const ui = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
+    expect((await ui.find({ type: 'Text', text: '18.0%' })) !== undefined).toBe(surface !== 'terminal')
+    expect((await ui.find({ type: 'Text', text: '27.0%' })) !== undefined).toBe(surface !== 'terminal')
+    await ui.unmount()
   }
 })
 

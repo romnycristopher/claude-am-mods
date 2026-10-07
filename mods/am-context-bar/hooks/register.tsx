@@ -403,13 +403,26 @@ async function refresh($: EngineInterface): Promise<void> {
 
       return found ? { percent: found.percentUsed, resetsAt: found.resetsAt } : undefined
     }
+    const session = limitOf('five_hour')
+    const weekly = limitOf('seven_day')
+    // The limits are the account's, so the last reading holds until its
+    // window resets; kept for the desktop to show before a response reports.
+    let lastLimits: Snapshot['lastLimits']
+    if (session !== undefined || weekly !== undefined) {
+      lastLimits = { ...(session && { session }), ...(weekly && { weekly }) }
+      await $.store.set('lastLimits', lastLimits)
+    } else {
+      const stored = await $.store.get('lastLimits')
+      lastLimits = typeof stored === 'object' && stored !== null ? (stored as Snapshot['lastLimits']) : undefined
+    }
     const next: Snapshot = {
       segments,
       usedTokens: breakdown?.totalTokens ?? usage.context.tokens ?? 0,
       windowTokens: breakdown?.rawMaxTokens ?? usage.context.window,
       compactsAt: breakdown?.isAutoCompactEnabled ? breakdown.autoCompactThreshold : undefined,
-      session: limitOf('five_hour'),
-      weekly: limitOf('seven_day'),
+      session,
+      weekly,
+      lastLimits,
       model,
       branch: git.branch,
       isDirty: git.isDirty,
@@ -572,6 +585,13 @@ export const register: Register = (on, options) => {
     // theme's inverse-text colour is its page background. The terminal keeps
     // its own background.
     const card = e.surface === 'terminal' ? {} : { backgroundColor: 'inverseText' as const }
+    // Before this session's first response reports the limits, the desktop
+    // shows the last reading while its window hasn't reset.
+    const current = (value: Limit | undefined) =>
+      value?.resetsAt !== undefined && Date.parse(value.resetsAt) > at ? value : undefined
+    const remembered = e.surface !== 'terminal' && snap.session === undefined && snap.weekly === undefined
+    const sessionLimit = remembered ? current(snap.lastLimits?.session) : snap.session
+    const weeklyLimit = remembered ? current(snap.lastLimits?.weekly) : snap.weekly
     const changes = snap.changes ?? (snap.isDirty ? 1 : 0)
     const ahead = snap.ahead ?? 0
     const behind = snap.behind ?? 0
@@ -662,7 +682,7 @@ export const register: Register = (on, options) => {
     )
 
     // When the session limit resets, beside the thinking level.
-    const resetIn = formatReset(snap.session?.resetsAt, at)
+    const resetIn = formatReset(sessionLimit?.resetsAt, at)
     const sessionReset =
       resetIn === null ? null : (
         <Text>
@@ -882,8 +902,10 @@ export const register: Register = (on, options) => {
         </Text>
       )
     const largest = used[0]?.segment.tokens ?? 1
-    const hasLimits = snap.session !== undefined || snap.weekly !== undefined
-    const fit = fitExpanded(e.props.maxRows > 0 ? e.props.maxRows : Infinity, used.length, hasLimits)
+    const hasLimits = sessionLimit !== undefined || weeklyLimit !== undefined
+    // The desktop grows the band to fit, so only the terminal's card gives up
+    // its spacing and folds categories to fit its rows.
+    const fit = fitExpanded(e.surface === 'terminal' && e.props.maxRows > 0 ? e.props.maxRows : Infinity, used.length, hasLimits)
     const rows = used.slice(0, fit.rows)
     const folded = used.slice(fit.rows)
     const other = folded.reduce((sum, u) => sum + u.segment.tokens, 0)
@@ -974,8 +996,8 @@ export const register: Register = (on, options) => {
 
         {hasLimits && (
           <Box flexWrap="wrap" marginTop={fit.gap}>
-            {limit('session', 'Session', snap.session)}
-            {limit('weekly', 'Weekly', snap.weekly)}
+            {limit('session', 'Session', sessionLimit)}
+            {limit('weekly', 'Weekly', weeklyLimit)}
           </Box>
         )}
         <Box justifyContent="space-between" flexWrap="wrap" marginTop={hasLimits ? 0 : fit.gap}>

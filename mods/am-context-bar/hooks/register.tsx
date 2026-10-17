@@ -1,7 +1,9 @@
 import { atom, read, update } from 'claude-code'
 import type { Color, EngineInterface, PluginOptions, Register } from 'claude-code'
 
-import type { Growth, Limit, Segment, Snapshot } from '../types'
+import type { Growth, Limit, Plan, Segment, Snapshot } from '../types'
+import { EMPTY_PLAN, TAG_GUIDE, planBrief, planFromMessages, planProgress, withPlan, withTaskCreated, withTaskUpdated, withTodos } from './plan'
+import type { PhaseState, Progress } from './plan'
 
 const COMMAND = 'am-context-bar'
 
@@ -12,6 +14,7 @@ const effort = atom({ plugin: 'am-context-bar', key: 'effort' } as const, null)
 const compactions = atom({ plugin: 'am-context-bar', key: 'compactions' } as const, 0)
 const now = atom({ plugin: 'am-context-bar', key: 'now' } as const, 0)
 const growth = atom({ plugin: 'am-context-bar', key: 'growth' } as const, { lastTokens: null, deltas: [] } as Growth)
+const planState = atom({ plugin: 'am-context-bar', key: 'plan' } as const, EMPTY_PLAN as Plan)
 
 // ── Palette ────────────────────────────────────────────────────────────────
 // Category colours are mid-tones that read on light and dark alike. Everything
@@ -113,22 +116,32 @@ export const parseLayout = (value: unknown): Layout | undefined =>
 export const layoutFrom = (options: PluginOptions | undefined): Layout => parseLayout(options?.layout) ?? 'three-rows'
 const LAYOUT_LABEL: Record<Layout, string> = { 'three-rows': 'three rows', 'two-rows': 'two rows', 'one-row': 'one row' }
 
-// The expanded card fits the band's rows rather than scroll: its two spacer
-// lines go first, then the blank line above it, then the smallest categories
-// fold into one "Other" row.
-export type ExpandedFit = { margin: number; gap: number; rows: number }
+// The expanded card fits the band's rows rather than scroll: its spacer
+// lines go first, then the blank line above it, then the plan shrinks to its
+// one-line summary, then the smallest categories fold into one "Other" row.
+// `planRows` is the plan section's full height, 0 without a plan.
+export type ExpandedFit = { margin: number; gap: number; rows: number; planRows: number }
 
-export const fitExpanded = (maxRows: number, categories: number, hasLimits: boolean): ExpandedFit => {
+export const fitExpanded = (maxRows: number, categories: number, hasLimits: boolean, planRows = 0): ExpandedFit => {
   // Two borders, the count, the bar, its legend, the table's head, the meta
   // row, and the limits row when there are limits.
   const room = maxRows - (7 + (hasLimits ? 1 : 0))
-  if (room >= categories + 3) return { margin: 1, gap: 1, rows: categories }
-  if (room >= categories + 1) return { margin: 1, gap: 0, rows: categories }
-  if (room >= categories) return { margin: 0, gap: 0, rows: categories }
+  const gaps = planRows > 0 ? 3 : 2
+  for (const plan of planRows > 1 ? [planRows, 1] : [planRows]) {
+    const left = room - plan
+    if (left >= categories + 1 + gaps) return { margin: 1, gap: 1, rows: categories, planRows: plan }
+    if (left >= categories + 1) return { margin: 1, gap: 0, rows: categories, planRows: plan }
+    if (left >= categories) return { margin: 0, gap: 0, rows: categories, planRows: plan }
+  }
 
   // Shown categories, then the Other row.
-  return { margin: 0, gap: 0, rows: Math.min(categories, Math.max(1, room - 1)) }
+  const plan = Math.min(planRows, 1)
+
+  return { margin: 0, gap: 0, rows: Math.min(categories, Math.max(1, room - plan - 1)), planRows: plan }
 }
+
+// A user option left out, true or "true" is on; false or "false" is off.
+export const isOptionOn = (value: unknown): boolean => value !== false && value !== 'false'
 
 // ── Formatting ─────────────────────────────────────────────────────────────
 // "claude-opus-5-5", "claude-sonnet-4-5-20250929", "claude-3-5-haiku-20241022",
@@ -161,6 +174,9 @@ export const formatTokens = (n: number): string => {
 
   return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
 }
+
+// Cut to `max` characters, an ellipsis marking the cut.
+export const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text)
 
 const percentOf = (tokens: number, of: number): number => (of > 0 ? (tokens / of) * 100 : 0)
 
@@ -463,17 +479,55 @@ async function setExpanded($: EngineInterface, value: boolean): Promise<void> {
   await $.store.set('isExpanded', value)
 }
 
+// ── Plan ───────────────────────────────────────────────────────────────────
+// The plan is kept for this session in the store too, so a resumed session
+// gets it back after a compaction took the calls out of its transcript.
+async function changePlan($: EngineInterface, change: (p: Plan) => Plan): Promise<void> {
+  await update($, planState, change)
+  await $.store.set('plan', { sessionId: await $.session.id(), plan: await read($, planState) })
+}
+
+async function restorePlan($: EngineInterface): Promise<void> {
+  const current = await read($, planState)
+  if (current.phases.length > 0 || current.tasks.length > 0) return
+  try {
+    const sessionId = await $.session.id()
+    const stored = (await $.store.get('plan')) as { sessionId?: unknown; plan?: Plan } | undefined
+    if (stored?.sessionId === sessionId && stored.plan !== undefined) {
+      await update($, planState, () => stored.plan as Plan)
+      return
+    }
+    // A session the mod meets midway: the plan and list its transcript holds.
+    const rebuilt = planFromMessages(await $.session.messages())
+    if (rebuilt.phases.length > 0 || rebuilt.tasks.length > 0) await update($, planState, () => rebuilt)
+  } catch {
+    // Nothing to restore.
+  }
+}
+
+// What Claude's tool calls did, read after they ran; the main loop's only.
+const hasRun = (e: { agentId?: string }, ran: { deny?: string; isError?: boolean }) =>
+  e.agentId === undefined && ran.deny === undefined && ran.isError !== true
+
 // ── Hooks ──────────────────────────────────────────────────────────────────
 export const register: Register = (on, options) => {
   const thresholds = thresholdsFrom(options)
   const layout = layoutFrom(options)
+  const isPlanOn = isOptionOn(options?.planProgress)
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: 'Context card above the prompt (on | off | expand | collapse)',
+      description: 'Context card above the prompt (on | off | expand | collapse | layout | plan)',
     })
     await restore($)
+    if (isPlanOn) await restorePlan($)
+    // The task tools' descriptions are cached for the session: asked again
+    // when Plan progress was switched since they were last given.
+    if ((await $.store.get('describedPlanTags')) !== isPlanOn) {
+      $.ui.invalidate('tool.describe')
+      await $.store.set('describedPlanTags', isPlanOn)
+    }
 
     // Keep reset countdowns current between turns.
     $.clock.every(60_000, () => {
@@ -492,11 +546,62 @@ export const register: Register = (on, options) => {
       await setExpanded($, false)
       await update($, compactions, () => 0)
       await update($, growth, () => ({ lastTokens: null, deltas: [] }))
+      await update($, planState, () => EMPTY_PLAN)
       void refresh($)
     }
 
     return next(e)
   })
+
+  // ── Plan progress ──
+  // Claude learns the tag convention from the task tools' descriptions, and
+  // each approved plan's own tags from a note on its result.
+  if (isPlanOn) {
+    for (const tool of ['TaskCreate', 'TodoWrite'] as const) {
+      on('tool.describe', { tool }, async ($, e, next) => {
+        const described = await next(e)
+
+        return { ...described, description: `${described.description}\n\n${TAG_GUIDE}` }
+      })
+    }
+
+    on('tool.call', { tool: 'ExitPlanMode' }, async ($, e, next) => {
+      const ran = await next(e)
+      if (e.agentId !== undefined || ran.deny !== undefined || ran.isError === true) return ran
+      const result = ran.result as { plan?: string | null; filePath?: string; isAgent?: boolean } | undefined
+      if (result?.isAgent === true) return ran
+      const markdown = result?.plan ?? (result?.filePath ? await $.fs.read(result.filePath).catch(() => null) : null)
+      if (markdown === null) return ran
+      await changePlan($, p => withPlan(p, markdown))
+      const { phases } = await read($, planState)
+
+      return phases.length >= 2 ? { ...ran, context: [...(ran.context ?? []), planBrief(phases)] } : ran
+    }).catch(($, e, next) => next(e))
+
+    on('tool.call', { tool: 'TaskCreate' }, async ($, e, next) => {
+      const ran = await next(e)
+      const id = (ran.result as { task?: { id?: unknown } } | undefined)?.task?.id
+      if (hasRun(e, ran) && typeof id === 'string') {
+        await changePlan($, p => withTaskCreated(p, id, e.subject, (e.metadata as Record<string, unknown> | undefined)?.phase))
+      }
+
+      return ran
+    }).catch(($, e, next) => next(e))
+
+    on('tool.call', { tool: 'TaskUpdate' }, async ($, e, next) => {
+      const ran = await next(e)
+      if (hasRun(e, ran)) await changePlan($, p => withTaskUpdated(p, e.taskId, e))
+
+      return ran
+    }).catch(($, e, next) => next(e))
+
+    on('tool.call', { tool: 'TodoWrite' }, async ($, e, next) => {
+      const ran = await next(e)
+      if (hasRun(e, ran)) await changePlan($, p => withTodos(p, e.todos))
+
+      return ran
+    }).catch(($, e, next) => next(e))
+  }
 
   on('command.run', { command: COMMAND }, async ($, e) => {
     const arg = e.args.trim().toLowerCase()
@@ -511,6 +616,21 @@ export const register: Register = (on, options) => {
       if ('deny' in result && result.deny !== undefined) return { text: `Couldn't change the layout: ${result.deny}` }
 
       return { text: `Context card layout: ${LAYOUT_LABEL[wanted]}.` }
+    }
+    if (arg === 'plan' || arg.startsWith('plan ')) {
+      const wanted = arg.slice('plan'.length).trim()
+      if (wanted !== 'on' && wanted !== 'off') {
+        return { text: `Plan progress is ${isPlanOn ? 'on' : 'off'}. Switch it: /am-context-bar plan on | off.` }
+      }
+      const result = await $.config.set({ key: 'am-context-bar.planProgress', value: wanted === 'on' })
+      if ('deny' in result && result.deny !== undefined) return { text: `Couldn't change Plan progress: ${result.deny}` }
+
+      return {
+        text:
+          wanted === 'on'
+            ? 'Plan progress on: the card follows the phases of an approved plan.'
+            : 'Plan progress off: no phase tracking, and Claude is no longer asked to tag tasks.',
+      }
     }
     if (arg === 'expand' || arg === 'collapse') {
       await setExpanded($, arg === 'expand')
@@ -566,6 +686,7 @@ export const register: Register = (on, options) => {
     const compacted = await read($, compactions)
     const at = (await read($, now)) || snap.takenAt
     const { deltas } = await read($, growth)
+    const progress = isPlanOn ? planProgress(await read($, planState)) : null
 
     const { Box, Text, Button } = $.ui.resolve(e)
     const window = snap.windowTokens || 1
@@ -790,6 +911,65 @@ export const register: Register = (on, options) => {
         </Text>
       )
 
+    // The plan in one line: the phase at hand and the tasks still open; phases
+    // left behind with open tasks, on the right.
+    const planLine = (p: Progress) => {
+      const phase = p.phases[p.current]
+      const total = p.done + p.open
+
+      return (
+        <Box justifyContent="space-between" flexWrap="wrap">
+          <Text wrap="truncate-end">
+            <Text dimColor>▤ </Text>
+            {p.isDone ? (
+              <Text>
+                <Text color="success">✓ Plan done</Text>
+                <Text dimColor> · {total} {total === 1 ? 'task' : 'tasks'}</Text>
+              </Text>
+            ) : p.isTagged && phase !== undefined ? (
+              <Text>
+                <Text>
+                  Phase {p.current + 1}/{p.phases.length}
+                </Text>
+                {phase.title !== '' && <Text dimColor> {clip(phase.title, 40)}</Text>}
+                <Text dimColor> · </Text>
+                <Text>{p.open} open</Text>
+              </Text>
+            ) : (
+              <Text>
+                <Text>{p.phases.length} phases</Text>
+                <Text dimColor> · </Text>
+                <Text>{total === 0 ? 'no tasks yet' : `${p.done}/${total} tasks done`}</Text>
+              </Text>
+            )}
+          </Text>
+          {p.behind.length > 0 && (
+            <Text color="warning">⚠ {p.behind.map(b => `P${b.id}: ${b.open} left`).join(' · ')}</Text>
+          )}
+        </Box>
+      )
+    }
+
+    // V3's plan note: the phase at hand, and a warning for phases left behind.
+    const planShort =
+      progress === null ? null : (
+        <Text>
+          <Text dimColor> · ▤ </Text>
+          {progress.isDone ? (
+            <Text color="success">✓</Text>
+          ) : progress.isTagged ? (
+            <Text>
+              {progress.current + 1}/{progress.phases.length}
+            </Text>
+          ) : (
+            <Text>
+              {progress.done}/{progress.done + progress.open}
+            </Text>
+          )}
+          {progress.behind.length > 0 && <Text color="warning"> ⚠{progress.behind.length}</Text>}
+        </Text>
+      )
+
     // ── C · collapsed ──
     if (!expanded) {
       if (layout === 'one-row') {
@@ -811,6 +991,7 @@ export const register: Register = (on, options) => {
                   <Text dimColor> · ↻ </Text>
                   <Text>{String(compacted)}</Text>
                   {gitShort}
+                  {planShort}
                 </Text>
               </Box>
               {toggle}
@@ -838,6 +1019,7 @@ export const register: Register = (on, options) => {
               {legend}
               {gitStatus}
             </Box>
+            {progress !== null && planLine(progress)}
           </Box>
         )
       }
@@ -861,6 +1043,7 @@ export const register: Register = (on, options) => {
             {legend}
             {gitStatus}
           </Box>
+          {progress !== null && planLine(progress)}
         </Box>
       )
     }
@@ -917,7 +1100,9 @@ export const register: Register = (on, options) => {
     const hasLimits = sessionLimit !== undefined || weeklyLimit !== undefined
     // The desktop grows the band to fit, so only the terminal's card gives up
     // its spacing and folds categories to fit its rows.
-    const fit = fitExpanded(e.surface === 'terminal' && e.props.maxRows > 0 ? e.props.maxRows : Infinity, used.length, hasLimits)
+    // The plan section: its head, a row per phase, and one for untagged tasks.
+    const planRows = progress === null ? 0 : 1 + progress.phases.length + (progress.untagged.done + progress.untagged.open > 0 ? 1 : 0)
+    const fit = fitExpanded(e.surface === 'terminal' && e.props.maxRows > 0 ? e.props.maxRows : Infinity, used.length, hasLimits, planRows)
     const rows = used.slice(0, fit.rows)
     const folded = used.slice(fit.rows)
     const other = folded.reduce((sum, u) => sum + u.segment.tokens, 0)
@@ -941,6 +1126,83 @@ export const register: Register = (on, options) => {
         </Box>
       </Box>
     )
+
+    const PHASE_MARK: Record<PhaseState, { glyph: string; color: Color }> = {
+      done: { glyph: '✓', color: 'success' },
+      active: { glyph: '◐', color: PERCENT },
+      todo: { glyph: '○', color: 'subtle' },
+      empty: { glyph: '○', color: 'subtle' },
+    }
+    const phaseRow = (key: string, mark: { glyph: string; color: Color }, label: string, title: string, count: string, isCurrent: boolean, countColor?: Color) => (
+      <Box key={key}>
+        <Box width={2}>
+          <Text color={mark.color}>{mark.glyph}</Text>
+        </Box>
+        <Box width={5}>
+          <Text dimColor={!isCurrent} bold={isCurrent}>
+            {label}
+          </Text>
+        </Box>
+        <Box flexGrow={1}>
+          <Text wrap="truncate-end" dimColor={!isCurrent}>
+            {title}
+          </Text>
+        </Box>
+        <Box width={8} justifyContent="flex-end">
+          <Text color={countColor} dimColor={count === '—'}>
+            {count}
+          </Text>
+        </Box>
+      </Box>
+    )
+    const planSection = (p: Progress) => {
+      if (fit.planRows <= 1) return <Box marginTop={fit.gap}>{planLine(p)}</Box>
+      const untagged = p.untagged.done + p.untagged.open
+
+      return (
+        <Box flexDirection="column" marginTop={fit.gap}>
+          <Box>
+            <Box flexGrow={1}>
+              <Text wrap="truncate-end">
+                <Text bold dimColor>
+                  PLAN
+                </Text>
+                {p.title !== null && <Text dimColor> · {p.title}</Text>}
+              </Text>
+            </Box>
+            <Box marginLeft={1}>
+              {p.isDone ? (
+                <Text color="success">✓ Done</Text>
+              ) : (
+                <Text dimColor>
+                  {p.open} open · {p.done}/{p.done + p.open} done
+                </Text>
+              )}
+            </Box>
+          </Box>
+          {p.phases.map((phase, index) =>
+            phaseRow(
+              `phase-${index}`,
+              phase.isBehind ? { glyph: '⚠', color: 'warning' } : PHASE_MARK[phase.state],
+              `P${phase.id}`,
+              phase.title,
+              phase.state === 'empty' ? '—' : `${phase.done}/${phase.done + phase.open}`,
+              p.isTagged && index === p.current && !p.isDone,
+              phase.isBehind ? 'warning' : undefined,
+            ),
+          )}
+          {untagged > 0 &&
+            phaseRow(
+              'phase-untagged',
+              { glyph: '·', color: 'subtle' },
+              '',
+              p.isTagged ? 'Untagged' : 'Tasks (no phase tags)',
+              `${p.untagged.done}/${untagged}`,
+              false,
+            )}
+        </Box>
+      )
+    }
 
     return (
       <Box flexDirection="column" borderStyle="round" borderColor="subtle" marginTop={fit.margin} paddingX={1} {...card}>
@@ -1008,6 +1270,7 @@ export const register: Register = (on, options) => {
         </Box>
         {rows.map(({ segment, color }, index) => tableRow(`row-${index}`, longLabel(segment.name), color, segment.tokens))}
         {folded.length > 0 && tableRow('row-other', `Other (${folded.length})`, 'subtle', other)}
+        {progress !== null && planSection(progress)}
 
         {hasLimits && (
           <Box flexWrap="wrap" marginTop={fit.gap}>

@@ -295,12 +295,12 @@ test('one-row drops the legend and keeps a short git mark', { options: { layout:
 
 test('the expanded card fits the band: spacers go, then the margin, then small rows fold', async () => {
   // 7 fixed rows, a limits row, 3 categories.
-  expect(fitExpanded(14, 3, true)).toEqual({ margin: 1, gap: 1, rows: 3 })
-  expect(fitExpanded(13, 3, true)).toEqual({ margin: 1, gap: 0, rows: 3 })
-  expect(fitExpanded(11, 3, true)).toEqual({ margin: 0, gap: 0, rows: 3 })
-  expect(fitExpanded(10, 3, true)).toEqual({ margin: 0, gap: 0, rows: 1 })
-  expect(fitExpanded(13, 3, false)).toEqual({ margin: 1, gap: 1, rows: 3 })
-  expect(fitExpanded(Infinity, 12, true)).toEqual({ margin: 1, gap: 1, rows: 12 })
+  expect(fitExpanded(14, 3, true)).toEqual({ margin: 1, gap: 1, rows: 3, planRows: 0 })
+  expect(fitExpanded(13, 3, true)).toEqual({ margin: 1, gap: 0, rows: 3, planRows: 0 })
+  expect(fitExpanded(11, 3, true)).toEqual({ margin: 0, gap: 0, rows: 3, planRows: 0 })
+  expect(fitExpanded(10, 3, true)).toEqual({ margin: 0, gap: 0, rows: 1, planRows: 0 })
+  expect(fitExpanded(13, 3, false)).toEqual({ margin: 1, gap: 1, rows: 3, planRows: 0 })
+  expect(fitExpanded(Infinity, 12, true)).toEqual({ margin: 1, gap: 1, rows: 12, planRows: 0 })
 })
 
 test('a short band folds the smallest categories into Other', async ($, on) => {

@@ -4,7 +4,7 @@
 
 **Live UI mods for the [Claude Code](https://claude.com/claude-code) terminal.**
 
-[![Version](https://img.shields.io/badge/am--context--bar-0.3.20-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
+[![Version](https://img.shields.io/badge/am--context--bar-0.4.0-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3FA34D)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](https://claude.com/claude-code)
 
@@ -18,7 +18,7 @@
 
 | Mod | What it does | Command |
 | --- | --- | --- |
-| [**am-context-bar**](#am-context-bar) | A card above the prompt that shows how full the context window is, what is filling it, how many turns you have left before quality drops, your plan limits, and your git status. | `/am-context-bar` |
+| [**am-context-bar**](#am-context-bar) | A card above the prompt that shows how full the context window is, what is filling it, how many turns you have left before quality drops, how far along an approved plan you are, your plan limits, and your git status. | `/am-context-bar` |
 
 ---
 
@@ -35,6 +35,7 @@ Long sessions slow down and get worse well before the context window is full. **
 - **Plan limits**: session and weekly usage, and when they reset.
 - **Session details**: the model, the thinking effort, and how many times the session has been compacted.
 - **Git**: the branch, uncommitted changes, and commits to push or pull.
+- **Plan progress**: after you approve a plan with phases, which phase you're on, how many tasks are open, and any earlier phase left with tasks unfinished. No setup needed.
 - **Fits in**: three collapsed layouts, theme colours that follow light and dark themes, and your terminal's own background.
 
 ### Requirements
@@ -116,7 +117,67 @@ From top to bottom:
 5. **Limits**: session (five-hour) and weekly usage, green below 50%, yellow from 50%, orange from 80% and red from 95%, with their reset times.
 6. **Session**: the model, the thinking effort and the number of compactions, with the git status at the right.
 
-The expanded card fits the space above the prompt instead of scrolling. On a short terminal it drops its blank spacer lines first, then the blank line above the card, then folds the smallest categories into one **Other** row.
+7. **Plan**, when there is one: a row per phase. See [Plan progress](#plan-progress).
+
+The expanded card fits the space above the prompt instead of scrolling. On a short terminal it drops its blank spacer lines first, then the blank line above the card, then shrinks the plan to its one-line summary, then folds the smallest categories into one **Other** row.
+
+---
+
+### Plan progress
+
+Long plans get split into phases, and halfway through it's easy to lose track of how many are left, or to move on with a point of an earlier phase still open. When you approve a plan in plan mode, the card follows it.
+
+**Collapsed**, one more line:
+
+```
+▤ Phase 2/3 Rules in PHP · 3 open                      ⚠ P1: 1 left
+```
+
+The phase you're on, out of how many; the tasks still open; and, on the right, any earlier phase left with tasks unfinished. In the one-row layout it shrinks to `▤ 2/3 ⚠1`. When every task is done it reads `✓ Plan done`.
+
+**Expanded**, a row per phase:
+
+```
+PLAN · From the plugin to the API                    3 open · 1/4 done
+⚠ P1   Fix the plugin before the cutover                          1/2
+◐ P2   Rules in PHP                                               0/2
+○ P3   API, notifications and app                                   —
+```
+
+`✓` done, `◐` in progress, `○` not started (`—` when Claude hasn't made its tasks yet), `⚠` an earlier phase with tasks still open.
+
+#### How it works
+
+It works on its own, with nothing to add to your `CLAUDE.md`:
+
+1. **The phases come from the plan.** When you approve a plan, the card reads its headings. It finds phases in any language (`## Phase 1`, `## Fase 2 — …`, `## Étape 3`, `## Stage B`, `## Milestone 1`…), or, when no heading names a phase, numbered headings (`## 1. …`, `## 2. …`). A plan with fewer than two phases isn't tracked.
+2. **The tasks come from Claude's task list** (`TaskCreate` and `TaskUpdate`, or `TodoWrite`), as Claude creates and finishes them.
+3. **A tag ties each task to its phase.** Claude starts each task with its phase tag, `P1:`, `P2:`, … (`P2.3:` for step 2.3). The card also accepts `F2:`, `Phase 2:`, `Fase 2:`, `§2:` and `[P2]`.
+
+Claude knows about the tags because the mod tells it. This is everything the mod adds to what Claude reads:
+
+- In the description of the `TaskCreate` and `TodoWrite` tools:
+  > Phase tags: when the tasks carry out a plan split into phases (Phase 1, Fase 2, Stage A…), start each one with its phase tag, P\<phase\>: — for example "P2: Add the migration", or "P2.3: …" for step 2.3. The person's context card counts progress per phase from these tags.
+- After you approve a plan with two or more phases, a note with that plan's tags:
+  > This plan has 3 phases: P1 …; P2 …; P3 …. Start the subject of every task you create for it with its phase tag ("P1: …"), so the person's context card counts it under its phase. If you move on while tasks of an earlier phase are still open, say so.
+
+If Claude leaves a task untagged, nothing is lost: it's counted as **Untagged** in the expanded card, and with no tags at all the card shows only the totals (`3 phases · 7/12 tasks done`).
+
+A new plan replaces the last one, keeping the tasks that are still open. A `/clear` forgets it. A resumed session picks up where it was.
+
+#### Plans outside plan mode
+
+The card only reads plans you approve in plan mode. If you keep plans elsewhere (a `PLAN.md` in the repo, an issue), you can still get per-phase progress by asking Claude for the tags in your `CLAUDE.md`:
+
+```markdown
+## Tasks of a plan with phases
+When you carry out a plan split into phases, start each task's subject with
+its phase tag: `P1: …`, `P2: …` (`P2.3: …` for step 2.3).
+```
+
+#### Turning it off
+
+`/am-context-bar plan off`, or **Plan progress** in `/config`. Off, the card tracks nothing and the mod adds nothing to Claude's tool descriptions or plans. `/am-context-bar plan on` brings it back.
 
 ---
 
@@ -141,6 +202,7 @@ All four colours come from your theme, so they stay readable in light and dark t
 | `/am-context-bar on` · `off` | Shows or hides it explicitly. |
 | `/am-context-bar expand` · `collapse` | Opens the expanded or the collapsed view (and shows the card if it's hidden). |
 | `/am-context-bar layout v1` · `v2` · `v3` | Picks the collapsed layout. Also accepts `three-rows`, `two-rows`, `one-row`. |
+| `/am-context-bar plan on` · `off` | Turns [Plan progress](#plan-progress) on or off. |
 
 Whether the card is shown and whether it's expanded are remembered across sessions. A `/clear` brings it back collapsed and starts the runway and the compaction count over.
 
@@ -154,6 +216,7 @@ Change these in **`/config`**, under am-context-bar:
 | Nearing dumb zone at (%) | `nearingAt` | `35` | Where the count turns yellow. |
 | Dumb zone starts at (%) | `dumbZoneAt` | `50` | Where the dumb zone starts: marked on the bar, and the count turns orange. |
 | Compact soon at (%) | `compactSoonAt` | `85` | Where the count turns red. |
+| Plan progress | `planProgress` | `true` | Follows the phases of an approved plan, and asks Claude to tag tasks with their phase. |
 
 The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactSoonAt`). If they don't, the card falls back to the defaults.
 
@@ -177,7 +240,7 @@ or in `settings.json`:
 
 ### Privacy
 
-Everything stays on your machine. The card reads the session's own token usage and limits from Claude Code and runs `git rev-parse` and `git status` in the working directory. It makes no network requests and sends nothing anywhere.
+Everything stays on your machine. The card reads the session's own token usage and limits from Claude Code, runs `git rev-parse` and `git status` in the working directory, and, with Plan progress on, reads the plans you approve and Claude's task list. It keeps the current plan in the plugin's local store so a resumed session gets it back. It makes no network requests and sends nothing anywhere.
 
 ---
 

@@ -29,6 +29,17 @@ export type Snapshot = {
 /** The context fill at the last turn, and how much each recent turn added. */
 export type Growth = { lastTokens: number | null; deltas: number[] }
 
+export type TaskStatus = 'pending' | 'in_progress' | 'completed'
+
+/** One task of Claude's list; `phase` is the plan phase its tag names. */
+export type PlanTask = { id: string; subject: string; status: TaskStatus; phase?: string }
+
+/** One phase of the approved plan: its id ("1", "B") and its heading. */
+export type PlanPhase = { id: string; title: string }
+
+/** The approved plan's phases and the task list, as Claude last left it. */
+export type Plan = { title: string | null; phases: PlanPhase[]; tasks: PlanTask[] }
+
 declare module 'claude-code' {
   interface PluginState {
     'am-context-bar': {
@@ -39,6 +50,7 @@ declare module 'claude-code' {
       compactions: number
       now: number
       growth: Growth
+      plan: Plan
     }
   }
 }

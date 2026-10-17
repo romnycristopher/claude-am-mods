@@ -1,7 +1,7 @@
 {
   "name": "am-context-bar",
-  "version": "0.3.20",
-  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git. Three layouts. /am-context-bar on | off | layout v1|v2|v3.",
+  "version": "0.4.0",
+  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git, and progress through an approved plan's phases. Three layouts. /am-context-bar on | off | layout v1|v2|v3 | plan on|off.",
   "author": {
     "name": "romnycristopher"
   },
@@ -43,6 +43,12 @@
       "default": 85,
       "min": 1,
       "max": 99
+    },
+    "planProgress": {
+      "type": "boolean",
+      "title": "Plan progress",
+      "description": "Follow the phases of an approved plan on the card. Claude is asked to tag each task with its phase (P1:, P2: …).",
+      "default": true
     }
   }
 }

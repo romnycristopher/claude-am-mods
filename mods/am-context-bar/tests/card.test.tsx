@@ -89,7 +89,14 @@ test('zones follow the thresholds', async () => {
   expect(zoneOf(64).color).toBe('claude')
   expect(zoneOf(72).label).toBe('Compact or clear')
   const t = thresholdsFrom({ nearingAt: 20, dumbZoneAt: 40, compactNowAt: 60 })
+  expect(t).toEqual({ nearing: 20, dumb: 40, compact: 60 })
   expect(zoneOf(45, t).label).toBe('Dumb zone')
+  expect(zoneOf(61, t).label).toBe('Compact or clear')
+  // Settings read as strings count too.
+  expect(thresholdsFrom({ dumbZoneAt: '45', compactNowAt: '80' })).toEqual({ nearing: 35, dumb: 45, compact: 80 })
+  // Moved token caps: the dumb zone by 150k and compact or clear by 300k on 1M.
+  expect(thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 150_000, 300_000)).toEqual({ nearing: 10.5, dumb: 15, compact: 30 })
+  expect(compactTokensFrom({ compactNowTokens: '300000' })).toBe(300_000)
   // Out-of-order settings fall back to the defaults.
   expect(thresholdsFrom({ nearingAt: 60, dumbZoneAt: 40 }).dumb).toBe(50)
   // Past 250k tokens a large window is in the dumb zone whatever its percentage.
@@ -127,15 +134,21 @@ test('formats labels and bars', async () => {
   expect(runs.map(r => r.text).join('')).toHaveLength(20)
   expect(runs[0]).toEqual({ text: '██', color: '#2F9C8F' })
   expect(runs.some(r => r.color === 'claude' && r.text === '│')).toBe(true)
-  // The compact-or-clear mark leads the red stretch past it.
-  expect(runs.some(r => r.color === 'error' && r.text.startsWith('│░') && r.isDim === undefined)).toBe(true)
+  // The compact-or-clear mark alone is red; the dumb zone's shading goes on past it.
+  expect(runs.filter(r => r.color === 'error').map(r => r.text)).toEqual(['│'])
+  // Shaded, the stretch past the mark turns red.
+  const shaded = terminalBar(20, [{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 700_000, 950_000, true)
+  expect(shaded.some(r => r.color === 'error' && r.text.startsWith('│░') && r.isDim === undefined)).toBe(true)
   // A compact-or-clear mark past auto-compact isn't drawn.
   expect(terminalBar(20, [], 1_000_000, 500_000, 960_000, 950_000).some(r => r.color === 'error')).toBe(false)
   const svg = contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 700_000, 950_000)
   expect(svg).toMatch(/prefers-color-scheme:dark/)
   expect(contextBarSvg([{ tokens: 640_000, color: 'zone:dumb' }], 1_000_000, 500_000, 700_000)).toMatch(/<rect x="0.00" width="640.00" height="12" class="z-dumb"\/>/)
-  expect(svg).toMatch(/class="d" x="500.00" width="200.00"/)
-  expect(svg).toMatch(/class="e" x="700.00" width="250.00"/)
+  expect(svg).toMatch(/class="d" x="500.00" width="450.00"/)
+  expect(svg).not.toMatch(/class="e"/)
+  const shadedSvg = contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 700_000, 950_000, 0, true)
+  expect(shadedSvg).toMatch(/class="d" x="500.00" width="200.00"/)
+  expect(shadedSvg).toMatch(/class="e" x="700.00" width="250.00"/)
   expect(svg).toMatch(/class="z-compact" x="698.50"/)
   expect(svg).toMatch(/viewBox="0 0 1000 12"/)
   // Padding adds clear space above and below without moving the bar.
@@ -483,3 +496,25 @@ test('after /clear the card restores its settings, collapsed, and starts the run
   expect(await ui.find({ type: 'Text', text: 'engine' })).toBeDefined()
   await ui.unmount()
 })
+
+test(
+  'the dumb zone and compact-or-clear marks follow the settings',
+  { options: { dumbZoneTokens: 150_000, compactNowTokens: 300_000 } },
+  async ($, on) => {
+    await startCard($, on)
+    await $.command.run({
+      command: 'am-context-bar',
+      args: 'expand',
+      origin: { kind: 'composer' },
+      presentation: { isFullscreen: false, columns: 100 },
+    })
+    const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
+    // 90k used and the dumb zone by 150k: 60k to go.
+    expect(await ui.find({ type: 'Text', text: '60k' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' to dumb zone' })).toBeDefined()
+    // Compact or clear by 300k, 30% of the 1M window.
+    expect(await ui.find({ type: 'Text', text: '300k' })).toBeDefined()
+    expect(await ui.find({ type: 'Text', text: ' (30%)' })).toBeDefined()
+    await ui.unmount()
+  },
+)

@@ -4,7 +4,7 @@
 
 **Live UI mods for the [Claude Code](https://claude.com/claude-code) terminal.**
 
-[![Version](https://img.shields.io/badge/am--context--bar-0.4.4-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
+[![Version](https://img.shields.io/badge/am--context--bar-0.5.1-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3FA34D)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](https://claude.com/claude-code)
 
@@ -112,7 +112,7 @@ Press **`▾`** (or run `/am-context-bar expand`) for the full picture. Press **
 From top to bottom:
 
 1. **Count and runway.** The runway is the average a turn added over the last five turns, and how many turns like that are left before the next mark: the dumb zone, then where to compact or clear, then auto-compact. Until a turn has been measured, it shows the tokens left to the next mark instead (`391k to dumb zone`). It starts over after a compaction or a `/clear`.
-2. **The bar**, split by category, with the dumb zone shaded orange, the stretch past where to compact or clear shaded red, and auto-compact marked.
+2. **The bar**, split by category, with the dumb zone shaded, where to compact or clear marked in red, and auto-compact marked.
 3. **The legend**: tokens used, free space, where the dumb zone starts (a range just below it, since quality tails off rather than dropping at one point: `200k–250k (20–25%)` on a 1M window), where to compact or clear (`400k (40%)`), and the buffer reserved for auto-compact.
 4. **What's using it**: every category, largest first, with a bar relative to the largest, its tokens and its share of what's used.
 5. **Limits**: session (five-hour) and weekly usage, green below 50%, yellow from 50%, orange from 80% and red from 95%, with their reset times.
@@ -230,9 +230,10 @@ Change these in **`/config`**, under am-context-bar:
 | Dumb zone starts by (tokens) | `dumbZoneTokens` | `250000` | On large windows the dumb zone starts here at the latest, whatever the percentage. `0` turns it off. |
 | Compact or clear at (%) | `compactNowAt` | `70` | Where it's time to compact or `/clear`: marked on the bar, and the count turns red. |
 | Compact or clear by (tokens) | `compactNowTokens` | `400000` | On large windows it's time to compact or clear here at the latest, whatever the percentage. `0` turns it off. |
+| Shade past compact or clear | `compactShading` | `false` | Shades the bar red from where to compact or clear up to auto-compact. Off, only the red mark shows it. |
 | Plan progress | `planProgress` | `true` | Follows the phases of a plan, approved or written in the chat, and asks Claude to tag tasks with their phase. |
 
-The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactNowAt`). If they don't, the card falls back to the defaults.
+The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactNowAt`). If they don't, the card falls back to the defaults. The token caps should too (`dumbZoneTokens` < `compactNowTokens`): a compact-or-clear cap at or below where the dumb zone starts is left out, and that mark goes by percentage alone.
 
 You can also set them at install time:
 

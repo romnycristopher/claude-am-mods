@@ -327,8 +327,18 @@ export const runwayOf = (deltas: number[], used: number, dumbFrom: number, compa
 // ── Bars ───────────────────────────────────────────────────────────────────
 type Part = { tokens: number; color: string }
 
-// `pad` is clear space above and below the bar, in bar heights.
-export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, compactFrom: number, compactsAt?: number, pad = 0): string => {
+// `pad` is clear space above and below the bar, in bar heights. Past where to
+// compact or clear the dumb zone's shading goes on, or turns red when
+// `isShaded`.
+export const contextBarSvg = (
+  parts: Part[],
+  window: number,
+  dumbFrom: number,
+  compactFrom: number,
+  compactsAt?: number,
+  pad = 0,
+  isShaded = false,
+): string => {
   const W = 1000
   const H = 12
   const P = H * pad
@@ -348,9 +358,10 @@ export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, c
   const dz1 = compactsAt === undefined ? W : x(compactsAt)
   // Where to compact or clear, marked only when it comes before auto-compact.
   const cc = Math.min(x(compactFrom), dz1)
+  const red = isShaded ? cc : dz1
   const tint =
-    (cc > dz0 ? `<rect class="d" x="${dz0.toFixed(2)}" width="${(cc - dz0).toFixed(2)}" height="${H}"/>` : '') +
-    (dz1 > cc ? `<rect class="e" x="${cc.toFixed(2)}" width="${(dz1 - cc).toFixed(2)}" height="${H}"/>` : '')
+    (red > dz0 ? `<rect class="d" x="${dz0.toFixed(2)}" width="${(red - dz0).toFixed(2)}" height="${H}"/>` : '') +
+    (dz1 > red ? `<rect class="e" x="${red.toFixed(2)}" width="${(dz1 - red).toFixed(2)}" height="${H}"/>` : '')
   const buffer = compactsAt === undefined ? '' : `<rect x="${dz1.toFixed(2)}" width="${(W - dz1).toFixed(2)}" height="${H}" fill="url(#h)"/>`
   const ticks =
     `<rect class="k" x="${(dz0 - 1.5).toFixed(2)}" width="3" height="${H}"/>` +
@@ -381,6 +392,7 @@ const miniBarSvg = (fraction: number, color: string): string => {
 export type Run = { text: string; color?: Color; isDim?: boolean }
 
 // The terminal bar: one glyph per cell, merged into runs of the same style.
+// `isShaded` turns the stretch past where to compact or clear red.
 export const terminalBar = (
   cells: number,
   parts: Part[],
@@ -388,6 +400,7 @@ export const terminalBar = (
   dumbFrom: number,
   compactFrom: number,
   compactsAt?: number,
+  isShaded = false,
 ): Run[] => {
   const bounds: { end: number; color: string }[] = []
   let usedEnd = 0
@@ -412,7 +425,7 @@ export const terminalBar = (
     else if (i === dumbCell) cell = { text: '│', color: 'claude' }
     else if (compactsAt !== undefined && mid >= compactsAt) cell = { text: '╱', isDim: true }
     // Undimmed, so the stretch past it reads red rather than grey.
-    else if (mid >= clearFrom) cell = { text: '░', color: 'error' }
+    else if (isShaded && mid >= clearFrom) cell = { text: '░', color: 'error' }
     else if (mid >= dumbFrom) cell = { text: '░', color: 'claude', isDim: true }
     else cell = { text: '░', color: 'subtle' }
     const last = runs[runs.length - 1]
@@ -578,6 +591,8 @@ export const register: Register = (on, options) => {
   const compactTokens = compactTokensFrom(options)
   const layout = layoutFrom(options)
   const isPlanOn = isOptionOn(options?.planProgress)
+  // Off unless turned on: the red stretch draws the eye all session long.
+  const isShaded = options?.compactShading === true || options?.compactShading === 'true'
 
   on('session.start', async ($, e, next) => {
     await $.command.register({
@@ -864,7 +879,7 @@ export const register: Register = (on, options) => {
 
         return (
           <Text>
-            {terminalBar(cells, parts, window, dumbFrom, compactFrom, snap.compactsAt).map(run => (
+            {terminalBar(cells, parts, window, dumbFrom, compactFrom, snap.compactsAt, isShaded).map(run => (
               <Text color={run.color} dimColor={run.isDim}>
                 {run.text}
               </Text>
@@ -877,7 +892,7 @@ export const register: Register = (on, options) => {
       return (
         <Svg
           height={8 * (1 + 2 * pad)}
-          source={contextBarSvg(parts, window, dumbFrom, compactFrom, snap.compactsAt, pad)}
+          source={contextBarSvg(parts, window, dumbFrom, compactFrom, snap.compactsAt, pad, isShaded)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -959,7 +974,7 @@ export const register: Register = (on, options) => {
       if (e.surface === 'terminal') {
         return (
           <Text>
-            {terminalBar(cells, isComposed ? composed : zoneFill(zone.color), window, dumbFrom, compactFrom, snap.compactsAt).map(run => (
+            {terminalBar(cells, isComposed ? composed : zoneFill(zone.color), window, dumbFrom, compactFrom, snap.compactsAt, isShaded).map(run => (
               <Text color={run.color} dimColor={run.isDim}>
                 {run.text}
               </Text>
@@ -973,7 +988,7 @@ export const register: Register = (on, options) => {
         <Svg
           width={px}
           height={8}
-          source={contextBarSvg(isComposed ? composed : zoneFill(zonePaint(zone.id)), window, dumbFrom, compactFrom, snap.compactsAt)}
+          source={contextBarSvg(isComposed ? composed : zoneFill(zonePaint(zone.id)), window, dumbFrom, compactFrom, snap.compactsAt, 0, isShaded)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -1366,8 +1381,8 @@ export const register: Register = (on, options) => {
           </Box>
           {(snap.compactsAt === undefined || compactFrom < snap.compactsAt) && (
             <Box marginRight={2}>
-              <Text color="error" dimColor>
-                ░{' '}
+              <Text color="error" dimColor={isShaded}>
+                {isShaded ? '░' : '│'}{' '}
               </Text>
               <Text dimColor>Compact or clear by </Text>
               <Text>{formatTokens(compactFrom)}</Text>

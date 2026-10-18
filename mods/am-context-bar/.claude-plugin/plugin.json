@@ -1,6 +1,6 @@
 {
   "name": "am-context-bar",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50% or 250k tokens, compact or clear from 70% or 400k), context bar with the dumb zone, where to compact or clear and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git, and progress through a plan's phases. Three layouts. /am-context-bar on | off | layout v1|v2|v3 | plan on|off.",
   "author": {
     "name": "romnycristopher"
@@ -28,14 +28,6 @@
       "min": 1,
       "max": 99
     },
-    "dumbZoneTokens": {
-      "type": "number",
-      "title": "Dumb zone starts by (tokens)",
-      "description": "On large windows the dumb zone starts here at the latest, whatever the percentage: quality tails off with the tokens in context, not how full the window is. 0 turns the cap off.",
-      "default": 250000,
-      "min": 0,
-      "max": 10000000
-    },
     "dumbZoneAt": {
       "type": "number",
       "title": "Dumb zone starts at (%)",
@@ -43,6 +35,14 @@
       "default": 50,
       "min": 1,
       "max": 99
+    },
+    "dumbZoneTokens": {
+      "type": "number",
+      "title": "Dumb zone starts by (tokens)",
+      "description": "On large windows the dumb zone starts here at the latest, whatever the percentage: quality tails off with the tokens in context, not how full the window is. 0 turns the cap off.",
+      "default": 250000,
+      "min": 0,
+      "max": 10000000
     },
     "compactNowAt": {
       "type": "number",
@@ -59,6 +59,12 @@
       "default": 400000,
       "min": 0,
       "max": 10000000
+    },
+    "compactShading": {
+      "type": "boolean",
+      "title": "Shade past compact or clear",
+      "description": "Shades the bar red from where to compact or clear up to auto-compact. Off, only the red mark shows it.",
+      "default": false
     },
     "planProgress": {
       "type": "boolean",

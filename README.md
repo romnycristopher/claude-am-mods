@@ -4,11 +4,11 @@
 
 **Live UI mods for the [Claude Code](https://claude.com/claude-code) terminal.**
 
-[![Version](https://img.shields.io/badge/am--context--bar-0.4.0-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
+[![Version](https://img.shields.io/badge/am--context--bar-0.4.3-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3FA34D)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](https://claude.com/claude-code)
 
-<img src="docs/expanded.png" alt="The am-context-bar card, expanded, above the Claude Code prompt in the terminal" width="820">
+<img src="docs/collapsed-three-rows.png" alt="The am-context-bar card, collapsed, above the Claude Code prompt in the terminal: context use, model and limits, git status, and the plan phase at hand" width="820">
 
 </div>
 
@@ -98,6 +98,7 @@ Everything on one line. The bar is a single fill in the zone's colour, so it tur
 | `Resets 1h 5m` | When the session limit resets. |
 | `↻ 0` | How many times this session has been compacted. |
 | `⎇ main · ● 4 uncommitted changes ↑3` | The branch, then `● 4 uncommitted changes` (staged, unstaged and untracked) or `✓ Nothing to commit` on a clean tree. `↑3` counts commits to push and `↓1` commits to pull, when the branch has an upstream. |
+| `▤ Phase 2/3 Cart and discounts · 3 open` | With a plan, the phase you're on and its open tasks; `⚠ P1: 1 left` on the right flags an earlier phase with tasks still open. In V3 it shrinks to `▤ 2/3 ⚠1`. See [Plan progress](#plan-progress). |
 | `│ ▾` | Expands the card. |
 
 ---

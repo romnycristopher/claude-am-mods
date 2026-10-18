@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { EMPTY_PLAN, phaseMentionsOf, phaseTagOf, phasesOfPlan, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from '../hooks/plan'
+import { EMPTY_PLAN, namesPlan, phaseMentionsOf, planInRead, phaseTagOf, phasesOfPlan, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from '../hooks/plan'
 import { fitExpanded, isOptionOn } from '../hooks/register'
 import type { Plan } from '../types'
 
@@ -225,6 +225,28 @@ test('a transcript gives back a plan from the chat and the phase it reached', as
   expect(plan.focus).toBe('2')
 })
 
+const DOC_PLAN = ['# Roadmap: la tienda', '## Fase 1 — Catálogo', '## Fase 2 — Carrito', '## Fase 3 — Pagos'].join('\n')
+
+test('a plan Claude reads counts when the person asked for one, or the file says it is one', async () => {
+  expect(namesPlan('lee el plan completo')).toBe(true)
+  expect(namesPlan('read the planning doc')).toBe(true)
+  expect(namesPlan('revisa las fases del documento')).toBe(true)
+  expect(namesPlan('implementation_plan.md')).toBe(true)
+  expect(namesPlan('planet.ts')).toBe(false)
+  expect(namesPlan('fix the build')).toBe(false)
+  // Read's and cat -n's line numbers come off.
+  expect(planInRead('     1\t# Roadmap\n     2\t## Phase 1 — A\n     3\t## Phase 2 — B')).toBe('# Roadmap\n## Phase 1 — A\n## Phase 2 — B')
+  expect(planInRead('## 1. Install\n## 2. Run')).toBeNull()
+
+  const read = { tool: 'Read', input: { file_path: '/repo/docs/tienda.md' }, result: { type: 'text', file: { filePath: '/repo/docs/tienda.md', content: DOC_PLAN } } }
+  const asked = planFromMessages([{ role: 'user', text: 'lee el plan completo en docs/tienda.md', toolUses: [] }, { role: 'assistant', text: '', toolUses: [read] }])
+  expect(asked.phases.map(p => p.title)).toEqual(['Catálogo', 'Carrito', 'Pagos'])
+  // Claude reading a file with phases on its own isn't taken for the plan.
+  expect(planFromMessages([{ role: 'user', text: 'fix the build', toolUses: [] }, { role: 'assistant', text: '', toolUses: [read] }]).phases).toEqual([])
+  const named = { ...read, input: { file_path: '/repo/PLAN.md' } }
+  expect(planFromMessages([{ role: 'user', text: 'go on', toolUses: [] }, { role: 'assistant', text: '', toolUses: [named] }]).phases).toHaveLength(3)
+})
+
 test('the expanded card shrinks the plan to one line before folding categories', async () => {
   // Plan of 4 rows: 8 fixed rows, 3 categories.
   expect(fitExpanded(Infinity, 3, true, 4)).toEqual({ margin: 1, gap: 1, rows: 3, planRows: 4 })
@@ -292,6 +314,11 @@ const startCard = async ($: Parameters<TestBody>[0], on: Parameters<TestBody>[1]
     if (e.tool === 'ExitPlanMode') return { result: { plan: PLAN, isAgent: false, filePath: '/plans/p.md' } }
     if (e.tool === 'TaskCreate') return { result: { task: { id: String(++nextId), subject: e.subject } } }
     if (e.tool === 'TaskUpdate') return { result: { success: true, taskId: e.taskId, updatedFields: ['status'] } }
+    if (e.tool === 'Read') {
+      const content = DOC_PLAN.split('\n').slice(0, 2).join('\n')
+
+      return { result: { type: 'text', file: { filePath: e.file_path, content, numLines: 2, startLine: 1, totalLines: 4 } }, text: `     1\t${content}` }
+    }
 
     return { deny: 'not in this test' }
   })
@@ -403,5 +430,30 @@ test('the card follows a chat plan through the phases the conversation names', a
   await ui.press({ key: 'toggle' })
   expect(await ui.find({ type: 'Text', text: 'Phase 3/3' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: 'up next' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a plan in a document Claude reads shows on the card, whole', async ($, on) => {
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('fs.read', () => ({ value: DOC_PLAN }))
+  await startCard($, on)
+  const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' } }) as const
+  const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
+
+  // Not asked about a plan: a file with phases is just a file.
+  await $.prompt.submit(typed('fix the build'))
+  expect((await $.tool.call({ tool: 'Read', file_path: '/repo/docs/tienda.md' })).context).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '3 phases' })).toBeUndefined()
+
+  await $.prompt.submit(typed('lee el plan completo en docs/tienda.md'))
+  // One page of it was read; the card takes the whole file, and Claude its tags.
+  const read = await $.tool.call({ tool: 'Read', file_path: '/repo/docs/tienda.md' })
+  expect(read.context?.join('\n')).toMatch(/3 phases: P1 Catálogo; P2 Carrito; P3 Pagos/)
+  expect(await ui.find({ type: 'Text', text: '3 phases' })).toBeDefined()
+  await $.prompt.submit(typed('empieza la fase 1'))
+  expect(await ui.find({ type: 'Text', text: 'Phase 1/3' })).toBeDefined()
+  // Read again, the same plan keeps its place and tells Claude nothing new.
+  expect((await $.tool.call({ tool: 'Read', file_path: '/repo/docs/tienda.md' })).context).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: 'Phase 1/3' })).toBeDefined()
   await ui.unmount()
 })

@@ -141,6 +141,26 @@ export const withPlan = (plan: Plan, markdown: string): Plan => {
 const STRONG_HEADING = new RegExp(`^#{1,4}\\s+(?:\\*\\*)?(?:${STRONG_WORD})\\s+(?:\\d{1,2}|[a-z])${EDGE_AFTER}`, 'imu')
 const isPlanText = (text: string): boolean => text.split('\n').filter(line => STRONG_HEADING.test(line)).length >= 2
 
+// ── Plans Claude reads ─────────────────────────────────────────────────────
+// A plan kept in a file or a doc counts once Claude reads it, when the person
+// asked for a plan ("lee el plan completo") or the file's name says it is one.
+const PLAN_WORD = new RegExp(
+  `${EDGE_BEFORE}(?:plan|plans|planes|planning|planificaci[oó]n|plano|planos|piano|roadmap|hoja de ruta|feuille de route|fahrplan|` +
+    `phases|fases|etapas|étapes|stages|milestones|hitos)${EDGE_AFTER}`,
+  'iu',
+)
+
+/** Whether a prompt or a file's name speaks of a plan. */
+export const namesPlan = (text: string): boolean => PLAN_WORD.test(text.replace(/[_\-.]+/g, ' '))
+
+/** The plan a read gave Claude, when it holds one: the text less any line numbers (`cat -n`, Read). */
+export const planInRead = (text: string): string | null => {
+  if (text.length > 400_000) return null
+  const plain = text.replace(/^ *\d+(?:\t|→)/gm, '')
+
+  return isPlanText(plain) ? plain : null
+}
+
 /** The person's prompt: the phase it puts in hand, and any it says is done. */
 export const withPrompt = (plan: Plan, text: string): Plan => {
   const mentions = phaseMentionsOf(text, plan.phases.map(p => p.id))
@@ -195,17 +215,31 @@ export const withTodos = (plan: Plan, todos: readonly { content: string; status:
 
 const isStatus = (value: unknown): value is TaskStatus => value === 'pending' || value === 'in_progress' || value === 'completed'
 
-type ToolUse = { tool: string; input: Record<string, unknown>; result?: unknown; isError?: true }
+type ToolUse = { tool: string; input: Record<string, unknown>; result?: unknown; text?: string; isError?: true }
+
+/** The tools the plan is followed through by name; any other may read one. */
+export const PLAN_TOOLS: readonly string[] = ['ExitPlanMode', 'TaskCreate', 'TaskUpdate', 'TodoWrite', 'Write', 'Edit']
 
 /** The plan and list a transcript holds, for a session the mod meets midway. */
 export const planFromMessages = (messages: readonly { role?: 'user' | 'assistant'; text?: string; toolUses?: readonly ToolUse[] }[]): Plan => {
   let plan = EMPTY_PLAN
+  let isPlanAsked = false
   for (const message of messages) {
-    if (message.role === 'user' && message.text) plan = withPrompt(plan, message.text)
+    if (message.role === 'user' && message.text) {
+      plan = withPrompt(plan, message.text)
+      isPlanAsked = namesPlan(message.text)
+    }
     if (message.role === 'assistant' && message.text) plan = withAnswer(plan, message.text)
     for (const use of message.toolUses ?? []) {
       if (use.isError) continue
       const result = (use.result ?? {}) as Record<string, unknown>
+      if (!PLAN_TOOLS.includes(use.tool)) {
+        const path = typeof use.input.file_path === 'string' ? use.input.file_path : ''
+        const file = result.file as { content?: unknown } | undefined
+        const read = typeof file?.content === 'string' ? file.content : use.text
+        const markdown = (isPlanAsked || namesPlan(path.split('/').at(-1) ?? '')) && read !== undefined ? planInRead(read) : null
+        if (markdown !== null) plan = withPlan(plan, markdown)
+      }
       if (use.tool === 'ExitPlanMode' && typeof result.plan === 'string') plan = withPlan(plan, result.plan)
       if (use.tool === 'TaskCreate') {
         const task = result.task as { id?: unknown } | undefined

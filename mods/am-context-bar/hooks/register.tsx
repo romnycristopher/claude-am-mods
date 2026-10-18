@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Color, EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { Growth, Limit, Plan, Segment, Snapshot } from '../types'
-import { EMPTY_PLAN, TAG_GUIDE, planBrief, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from './plan'
+import { EMPTY_PLAN, PLAN_TOOLS, TAG_GUIDE, namesPlan, planBrief, planFromMessages, planInRead, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from './plan'
 import type { PhaseState, Progress } from './plan'
 
 const COMMAND = 'am-context-bar'
@@ -605,13 +605,35 @@ export const register: Register = (on, options) => {
     // Without tasks, the conversation tells the phase: the person asks for
     // one ("go on with phase 2"), Claude says one is done. A plan Claude only
     // wrote in its answer, outside plan mode, counts too.
+    // Whether the person's last prompt asked about a plan, so a plan Claude
+    // then reads (a file, a doc) is taken as the one to follow.
+    let isPlanAsked = false
     on('prompt.submit', async ($, e, next) => {
       const isTyped = e.origin.kind === 'composer' || e.origin.kind === 'bridge' || e.origin.kind === 'sdk'
-      if (isTyped && e.command === undefined && e.isMeta !== true && (await read($, planState)).phases.length > 0) {
-        await changePlan($, p => withPrompt(p, e.text))
+      if (isTyped && e.command === undefined && e.isMeta !== true) {
+        isPlanAsked = namesPlan(e.text)
+        if ((await read($, planState)).phases.length > 0) await changePlan($, p => withPrompt(p, e.text))
       }
 
       return next(e)
+    }).catch(($, e, next) => next(e))
+
+    on('tool.call', async ($, e, next) => {
+      const ran = await next(e)
+      if (e.agentId !== undefined || ran.deny !== undefined || ran.isError === true || PLAN_TOOLS.includes(e.tool)) return ran
+      const input = e as unknown as Record<string, unknown>
+      const path = typeof input.file_path === 'string' ? input.file_path : ''
+      if (!isPlanAsked && !namesPlan(path.split('/').at(-1) ?? '')) return ran
+      // A Read may have been one page of the file: the plan is the whole of it.
+      const text = e.tool === 'Read' && path !== '' ? await $.fs.read(path).catch(() => ran.text) : ran.text
+      const markdown = typeof text === 'string' ? planInRead(text) : null
+      if (markdown === null) return ran
+      const before = await read($, planState)
+      await changePlan($, p => withPlan(p, markdown))
+      const { phases } = await read($, planState)
+      const isNew = phases.map(p => p.id).join() !== before.phases.map(p => p.id).join()
+
+      return isNew ? { ...ran, context: [...(ran.context ?? []), planBrief(phases)] } : ran
     }).catch(($, e, next) => next(e))
 
     on('turn.complete', async ($, e, next) => {

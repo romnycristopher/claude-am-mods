@@ -127,6 +127,8 @@ The expanded card fits the space above the prompt instead of scrolling. On a sho
 
 Long plans get split into phases, and halfway through it's easy to lose track of how many are left, or to move on with a point of an earlier phase still open. When Claude gives you a plan with phases, approved in plan mode, written in the chat, or read from a file or doc, the card follows it.
 
+<img src="docs/plan-progress.png" alt="Expanded card following a plan read from @PLAN.md: phase 1 done, phase 2 in progress with 1 of 3 tasks done, phase 3 not started" width="820">
+
 **Collapsed**, one more line:
 
 ```

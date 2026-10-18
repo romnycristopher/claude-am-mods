@@ -37,8 +37,12 @@ export type PlanTask = { id: string; subject: string; status: TaskStatus; phase?
 /** One phase of the approved plan: its id ("1", "B") and its heading. */
 export type PlanPhase = { id: string; title: string }
 
-/** The approved plan's phases and the task list, as Claude last left it. */
-export type Plan = { title: string | null; phases: PlanPhase[]; tasks: PlanTask[] }
+/**
+ * The plan's phases and the task list, as Claude last left it. `focus` is the
+ * phase the conversation last put in hand ("go on with phase 2"), `finished`
+ * the phases it said were done; both count for phases with no tagged tasks.
+ */
+export type Plan = { title: string | null; phases: PlanPhase[]; tasks: PlanTask[]; focus?: string; finished?: string[] }
 
 declare module 'claude-code' {
   interface PluginState {

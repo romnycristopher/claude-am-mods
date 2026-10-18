@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { EMPTY_PLAN, phaseTagOf, phasesOfPlan, planFromMessages, planProgress, withPlan, withTaskCreated, withTaskUpdated, withTodos } from '../hooks/plan'
+import { EMPTY_PLAN, phaseMentionsOf, phaseTagOf, phasesOfPlan, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from '../hooks/plan'
 import { fitExpanded, isOptionOn } from '../hooks/register'
 import type { Plan } from '../types'
 
@@ -132,6 +132,97 @@ test('a transcript gives back the plan and the list', async () => {
   ])
   expect(plan.phases).toHaveLength(3)
   expect(plan.tasks.map(t => `${t.id} ${t.status}`)).toEqual(['1 completed', '2 pending'])
+})
+
+// A plan Claude wrote in the chat, as in a real session: no plan mode, no tasks.
+const CHAT_PLAN = [
+  '# Plan: a function that sums numbers',
+  '',
+  'The project directory is empty, so I\'ve assumed **Python**.',
+  '',
+  '## Phase 1: Design the interface',
+  '- **Name and signature:** `sum_numbers(*numbers, unique=False)`',
+  '## Phase 2: Implement',
+  '## Phase 3: Test and verify',
+].join('\n')
+
+test('names a phase, and says whether it is done, in any language', async () => {
+  const known = ['1', '2', '3']
+  const said = (text: string) => phaseMentionsOf(text, known).map(m => `${m.id}${m.isDone ? ' done' : ''}`)
+  expect(said('sí, sigue con la fase 2')).toEqual(['2'])
+  expect(said('Go ahead and implement phase 1')).toEqual(['1'])
+  expect(said('do P3')).toEqual(['3'])
+  expect(said('Phase 1 is done. Writing the actual logic is Phase 2.')).toEqual(['1 done', '2'])
+  expect(said('La Fase 2 está terminada y la función ya funciona.')).toEqual(['2 done'])
+  expect(said('Terminé la fase 1, ahora la fase 2')).toEqual(['1 done', '2'])
+  expect(said('Étape 3 terminée ✓')).toEqual(['3 done'])
+  expect(said('## Fase 1 — Diseñar la interfaz (hecha)')).toEqual(['1 done'])
+  // Not done, and not a phase.
+  expect(said("Phase 2 isn't done yet")).toEqual(['2'])
+  expect(said('La fase 2 no está terminada')).toEqual(['2'])
+  expect(said('Phase 1 is done, and Phase 2 is next')).toEqual(['1 done', '2'])
+  expect(said('phase 7, chapter 2, mp3')).toEqual([])
+  // A done mark comes off a heading's title.
+  expect(phasesOfPlan('## Fase 1 — Diseñar (hecha)\n## Fase 2 — Implementar ✓\n## Fase 3 — Probar').phases.map(p => p.title)).toEqual([
+    'Diseñar',
+    'Implementar',
+    'Probar',
+  ])
+})
+
+test('without plan mode or tasks, the conversation tells the phase', async () => {
+  // The plan only written in the answer is still the plan.
+  let plan = withAnswer(EMPTY_PLAN, CHAT_PLAN)
+  expect(plan.phases.map(p => p.title)).toEqual(['Design the interface', 'Implement', 'Test and verify'])
+  expect(planProgress(plan)?.isFollowed).toBe(false)
+
+  plan = withPrompt(plan, 'Go ahead en implement phase 1')
+  let p = planProgress(plan)
+  expect(p?.current).toBe(0)
+  expect(p?.phases[0]?.state).toBe('active')
+
+  plan = withAnswer(plan, 'Phase 1 is done. I created `sum_numbers.py`. Writing the actual logic is Phase 2.')
+  p = planProgress(plan)
+  expect(p?.phases.map(ph => ph.state)).toEqual(['done', 'empty', 'empty'])
+  expect(p?.current).toBe(1)
+
+  plan = withPrompt(plan, 'sí, sigue con la fase 2')
+  expect(planProgress(plan)?.phases.map(ph => ph.state)).toEqual(['done', 'active', 'empty'])
+  plan = withAnswer(plan, 'La Fase 2 está terminada y la función ya funciona.')
+  p = planProgress(plan)
+  expect(p?.current).toBe(2)
+  expect(p?.isDone).toBe(false)
+  plan = withAnswer(withPrompt(plan, 'now phase 3'), 'Phase 3 is complete: every test passes.')
+  expect(planProgress(plan)?.isDone).toBe(true)
+
+  // Going back to a finished phase puts it in hand again.
+  const back = planProgress(withPrompt(plan, 'vuelve a la fase 1, hay un bug'))
+  expect(back?.current).toBe(0)
+  expect(back?.phases[0]?.state).toBe('active')
+  expect(back?.isDone).toBe(false)
+
+  // A phase word wins over a step word.
+  expect(withPrompt(plan, 'In phase 2, step 3 fails').focus).toBe('2')
+  // Approving the same plan keeps what was done; another plan starts over.
+  const approved = withPlan(withAnswer(withAnswer(EMPTY_PLAN, CHAT_PLAN), 'Phase 1 is done.'), '# Plan\n## Fase 1 — Diseño\n## Fase 2 — Código\n## Fase 3 — Pruebas')
+  expect(approved.finished).toEqual(['1'])
+  expect(approved.phases[1]?.title).toBe('Código')
+  expect(withPlan(approved, '## Stage A\n## Stage B').finished).toBeUndefined()
+  // A recap of the same phases, or numbered headings, is no new plan.
+  expect(withAnswer(approved, '## Phase 1 ✓\n## Phase 2\n## Phase 3').phases[1]?.title).toBe('Código')
+  expect(withAnswer(approved, '## 1. Install\n## 2. Run').phases).toHaveLength(3)
+})
+
+test('a transcript gives back a plan from the chat and the phase it reached', async () => {
+  const plan = planFromMessages([
+    { role: 'user', text: 'Create a plan with 3 phases', toolUses: [] },
+    { role: 'assistant', text: CHAT_PLAN, toolUses: [] },
+    { role: 'user', text: 'implement phase 1', toolUses: [] },
+    { role: 'assistant', text: 'Phase 1 is done.', toolUses: [] },
+    { role: 'user', text: 'sigue con la fase 2', toolUses: [] },
+  ])
+  expect(plan.finished).toEqual(['1'])
+  expect(plan.focus).toBe('2')
 })
 
 test('the expanded card shrinks the plan to one line before folding categories', async () => {
@@ -281,5 +372,36 @@ test('Plan progress off leaves plans and tasks alone', { options: { planProgress
   const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
   expect(await ui.find({ type: 'Text', text: 'Phase 2/3' })).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: '◔' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the card follows a chat plan through the phases the conversation names', async ($, on) => {
+  on('turn.complete', () => ({ text: '' }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  await startCard($, on)
+  const turn = { durationMs: 1, isAborted: false, turnId: 't', reason: 'answer' } as const
+  await $.turn.complete({ ...turn, answer: CHAT_PLAN })
+  const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
+  expect(await ui.find({ type: 'Text', text: '3 phases' })).toBeDefined()
+
+  const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' } }) as const
+  await $.prompt.submit(typed('Go ahead and implement phase 1'))
+  await $.turn.complete({ ...turn, answer: 'Phase 1 is done.' })
+  // A task's notification is no word of the person's.
+  await $.prompt.submit({ text: 'phase 3 is done', wait: false, origin: { kind: 'task-notification' } })
+  await $.prompt.submit(typed('sí, sigue con la fase 2'))
+  expect(await ui.find({ type: 'Text', text: 'Phase 2/3' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: ' Implement' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'in progress' })).toBeDefined()
+
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: '1/3 phases done' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'done' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'now' })).toBeDefined()
+
+  await $.turn.complete({ ...turn, answer: 'La Fase 2 está terminada.' })
+  await ui.press({ key: 'toggle' })
+  expect(await ui.find({ type: 'Text', text: 'Phase 3/3' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'up next' })).toBeDefined()
   await ui.unmount()
 })

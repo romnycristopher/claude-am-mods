@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { Color, EngineInterface, PluginOptions, Register } from 'claude-code'
 
 import type { Growth, Limit, Plan, Segment, Snapshot } from '../types'
-import { EMPTY_PLAN, TAG_GUIDE, planBrief, planFromMessages, planProgress, withPlan, withTaskCreated, withTaskUpdated, withTodos } from './plan'
+import { EMPTY_PLAN, TAG_GUIDE, planBrief, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from './plan'
 import type { PhaseState, Progress } from './plan'
 
 const COMMAND = 'am-context-bar'
@@ -601,6 +601,24 @@ export const register: Register = (on, options) => {
 
       return ran
     }).catch(($, e, next) => next(e))
+
+    // Without tasks, the conversation tells the phase: the person asks for
+    // one ("go on with phase 2"), Claude says one is done. A plan Claude only
+    // wrote in its answer, outside plan mode, counts too.
+    on('prompt.submit', async ($, e, next) => {
+      const isTyped = e.origin.kind === 'composer' || e.origin.kind === 'bridge' || e.origin.kind === 'sdk'
+      if (isTyped && e.command === undefined && e.isMeta !== true && (await read($, planState)).phases.length > 0) {
+        await changePlan($, p => withPrompt(p, e.text))
+      }
+
+      return next(e)
+    }).catch(($, e, next) => next(e))
+
+    on('turn.complete', async ($, e, next) => {
+      if (e.agentId === undefined && e.reason === 'answer' && e.answer !== '') await changePlan($, p => withAnswer(p, e.answer))
+
+      return next(e)
+    }).catch(($, e, next) => next(e))
   }
 
   on('command.run', { command: COMMAND }, async ($, e) => {
@@ -926,14 +944,14 @@ export const register: Register = (on, options) => {
                 <Text color="success">✓ Plan done</Text>
                 <Text dimColor> · {total} {total === 1 ? 'task' : 'tasks'}</Text>
               </Text>
-            ) : p.isTagged && phase !== undefined ? (
+            ) : p.isFollowed && phase !== undefined ? (
               <Text>
                 <Text>
                   Phase {p.current + 1}/{p.phases.length}
                 </Text>
                 {phase.title !== '' && <Text dimColor> {clip(phase.title, 40)}</Text>}
                 <Text dimColor> · </Text>
-                <Text>{p.open} open</Text>
+                <Text>{total > 0 ? `${p.open} open` : phase.state === 'active' ? 'in progress' : 'up next'}</Text>
               </Text>
             ) : (
               <Text>
@@ -957,7 +975,7 @@ export const register: Register = (on, options) => {
           <Text dimColor> · ▤ </Text>
           {progress.isDone ? (
             <Text color="success">✓</Text>
-          ) : progress.isTagged ? (
+          ) : progress.isFollowed ? (
             <Text>
               {progress.current + 1}/{progress.phases.length}
             </Text>
@@ -1173,6 +1191,10 @@ export const register: Register = (on, options) => {
             <Box marginLeft={1}>
               {p.isDone ? (
                 <Text color="success">✓ Done</Text>
+              ) : p.done + p.open === 0 ? (
+                <Text dimColor>
+                  {p.phases.filter(phase => phase.state === 'done').length}/{p.phases.length} phases done
+                </Text>
               ) : (
                 <Text dimColor>
                   {p.open} open · {p.done}/{p.done + p.open} done
@@ -1186,8 +1208,9 @@ export const register: Register = (on, options) => {
               phase.isBehind ? { glyph: '⚠', color: 'warning' } : PHASE_MARK[phase.state],
               `P${phase.id}`,
               phase.title,
-              phase.state === 'empty' ? '—' : `${phase.done}/${phase.done + phase.open}`,
-              p.isTagged && index === p.current && !p.isDone,
+              // A phase with no tasks, followed from the conversation.
+              phase.done + phase.open > 0 ? `${phase.done}/${phase.done + phase.open}` : phase.state === 'done' ? 'done' : phase.state === 'active' ? 'now' : '—',
+              p.isFollowed && index === p.current && !p.isDone,
               phase.isBehind ? 'warning' : undefined,
             ),
           )}

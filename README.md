@@ -18,7 +18,7 @@
 
 | Mod | What it does | Command |
 | --- | --- | --- |
-| [**am-context-bar**](#am-context-bar) | A card above the prompt that shows how full the context window is, what is filling it, how many turns you have left before quality drops, how far along an approved plan you are, your plan limits, and your git status. | `/am-context-bar` |
+| [**am-context-bar**](#am-context-bar) | A card above the prompt that shows how full the context window is, what is filling it, how many turns you have left before quality drops, how far along a plan you are, your plan limits, and your git status. | `/am-context-bar` |
 
 ---
 
@@ -35,7 +35,7 @@ Long sessions slow down and get worse well before the context window is full. **
 - **Plan limits**: session and weekly usage, and when they reset.
 - **Session details**: the model, the thinking effort, and how many times the session has been compacted.
 - **Git**: the branch, uncommitted changes, and commits to push or pull.
-- **Plan progress**: after you approve a plan with phases, which phase you're on, how many tasks are open, and any earlier phase left with tasks unfinished. No setup needed.
+- **Plan progress**: for a plan with phases, approved in plan mode or just written in the chat, which phase you're on, how many tasks are open, and any earlier phase left with tasks unfinished. No setup needed.
 - **Fits in**: three collapsed layouts, theme colours that follow light and dark themes, and your terminal's own background.
 
 ### Requirements
@@ -125,7 +125,7 @@ The expanded card fits the space above the prompt instead of scrolling. On a sho
 
 ### Plan progress
 
-Long plans get split into phases, and halfway through it's easy to lose track of how many are left, or to move on with a point of an earlier phase still open. When you approve a plan in plan mode, the card follows it.
+Long plans get split into phases, and halfway through it's easy to lose track of how many are left, or to move on with a point of an earlier phase still open. When Claude gives you a plan with phases, approved in plan mode or just written in the chat, the card follows it.
 
 **Collapsed**, one more line:
 
@@ -146,28 +146,33 @@ PLAN · From the plugin to the API                    3 open · 1/4 done
 
 `✓` done, `◐` in progress, `○` not started (`—` when Claude hasn't made its tasks yet), `⚠` an earlier phase with tasks still open.
 
+With no tasks, a phase shows `now` or `done` instead of a count, and the collapsed line reads `▤ Phase 2/3 Implement · in progress`, or `up next` once the phase before is done.
+
 #### How it works
 
 It works on its own, with nothing to add to your `CLAUDE.md`:
 
-1. **The phases come from the plan.** When you approve a plan, the card reads its headings. It finds phases in any language (`## Phase 1`, `## Fase 2 — …`, `## Étape 3`, `## Stage B`, `## Milestone 1`…), or, when no heading names a phase, numbered headings (`## 1. …`, `## 2. …`). A plan with fewer than two phases isn't tracked.
+1. **The phases come from the plan.** When you approve a plan, the card reads its headings. A plan Claude writes in its answer instead of plan mode counts too, when two or more of its headings name phases (`## Phase 1: …`, `## Fase 2 — …`). An answer with numbered headings alone isn't taken for a plan. It finds phases in any language (`## Phase 1`, `## Fase 2 — …`, `## Étape 3`, `## Stage B`, `## Milestone 1`…), or, when no heading names a phase, numbered headings (`## 1. …`, `## 2. …`). A plan with fewer than two phases isn't tracked.
 2. **The tasks come from Claude's task list** (`TaskCreate` and `TaskUpdate`, or `TodoWrite`), as Claude creates and finishes them.
 3. **A tag ties each task to its phase.** Claude starts each task with its phase tag, `P1:`, `P2:`, … (`P2.3:` for step 2.3). The card also accepts `F2:`, `Phase 2:`, `Fase 2:`, `§2:` and `[P2]`.
+4. **Without tasks, the conversation tells the phase.** Not every session has the task tools, and small plans often go without tasks. Then the card goes by what's said. When you ask for a phase (`go on with phase 2`, `sigue con la fase 2`, `do P3`), that phase is in progress. When Claude or you say a phase is finished (`Phase 1 is done`, `La fase 2 está terminada`, `Étape 3 terminée`, `Phase 2 ✓`), it's done, and the card moves on to the next. A heading marked done in the plan itself (`## Fase 1 — Diseño (hecha)`) counts as done too. Tasks win where a phase has them.
 
 Claude knows about the tags because the mod tells it. This is everything the mod adds to what Claude reads:
 
 - In the description of the `TaskCreate` and `TodoWrite` tools:
   > Phase tags: when the tasks carry out a plan split into phases (Phase 1, Fase 2, Stage A…), start each one with its phase tag, P\<phase\>: — for example "P2: Add the migration", or "P2.3: …" for step 2.3. The person's context card counts progress per phase from these tags.
 - After you approve a plan with two or more phases, a note with that plan's tags:
-  > This plan has 3 phases: P1 …; P2 …; P3 …. Start the subject of every task you create for it with its phase tag ("P1: …"), so the person's context card counts it under its phase. If you move on while tasks of an earlier phase are still open, say so.
+  > This plan has 3 phases: P1 …; P2 …; P3 …. Start the subject of every task you create for it with its phase tag ("P1: …"), so the person's context card counts it under its phase. When you finish a phase, say so naming it ("Phase 1 is done"). If you move on while tasks of an earlier phase are still open, say so.
+
+To follow the conversation, the card reads your prompts and Claude's answers as they happen. It only looks for phase names and done words, and adds nothing to what Claude reads.
 
 If Claude leaves a task untagged, nothing is lost: it's counted as **Untagged** in the expanded card, and with no tags at all the card shows only the totals (`3 phases · 7/12 tasks done`).
 
-A new plan replaces the last one, keeping the tasks that are still open. A `/clear` forgets it. A resumed session picks up where it was.
+A new plan replaces the last one, keeping the tasks that are still open. The same plan again (written in the chat, then approved) keeps what was already done. A `/clear` forgets it. A resumed session picks up where it was.
 
-#### Plans outside plan mode
+#### Plans kept in a file
 
-The card only reads plans you approve in plan mode. If you keep plans elsewhere (a `PLAN.md` in the repo, an issue), you can still get per-phase progress by asking Claude for the tags in your `CLAUDE.md`:
+The card reads plans you approve in plan mode and plans Claude writes in the chat. If you keep plans elsewhere (a `PLAN.md` in the repo, an issue), you can still get per-phase progress by asking Claude for the tags in your `CLAUDE.md`:
 
 ```markdown
 ## Tasks of a plan with phases
@@ -216,7 +221,7 @@ Change these in **`/config`**, under am-context-bar:
 | Nearing dumb zone at (%) | `nearingAt` | `35` | Where the count turns yellow. |
 | Dumb zone starts at (%) | `dumbZoneAt` | `50` | Where the dumb zone starts: marked on the bar, and the count turns orange. |
 | Compact soon at (%) | `compactSoonAt` | `85` | Where the count turns red. |
-| Plan progress | `planProgress` | `true` | Follows the phases of an approved plan, and asks Claude to tag tasks with their phase. |
+| Plan progress | `planProgress` | `true` | Follows the phases of a plan, approved or written in the chat, and asks Claude to tag tasks with their phase. |
 
 The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactSoonAt`). If they don't, the card falls back to the defaults.
 
@@ -240,7 +245,7 @@ or in `settings.json`:
 
 ### Privacy
 
-Everything stays on your machine. The card reads the session's own token usage and limits from Claude Code, runs `git rev-parse` and `git status` in the working directory, and, with Plan progress on, reads the plans you approve and Claude's task list. It keeps the current plan in the plugin's local store so a resumed session gets it back. It makes no network requests and sends nothing anywhere.
+Everything stays on your machine. The card reads the session's own token usage and limits from Claude Code, runs `git rev-parse` and `git status` in the working directory, and, with Plan progress on, reads the plans Claude gives you, Claude's task list, and your prompts and Claude's answers for the phases they name. It keeps the current plan in the plugin's local store so a resumed session gets it back. It makes no network requests and sends nothing anywhere.
 
 ---
 

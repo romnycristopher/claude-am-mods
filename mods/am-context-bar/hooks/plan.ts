@@ -11,6 +11,8 @@ export const EMPTY_PLAN: Plan = { title: null, phases: [], tasks: [] }
 const PHASE_WORD =
   'phase|fase|étape|etape|etapa|stage|milestone|hito|part|parte|partie|step|paso|passo|sprint|iteration|iteración|iteracion|wave|ola|schritt|stufe|teil'
 const PUNCT = '[:.)·\\-–—]'
+// The ones that only ever head phases; "step 3" or "part 2" also name things inside one.
+const STRONG_WORD = 'phase|fase|étape|etape|etapa|stage|milestone|hito|sprint|iteration|iteración|iteracion'
 
 // "## Phase 1 — Setup", "### Fase 0: infraestructura", "## **Stage B** Rollout";
 // not "### 1.1 …", a step inside a phase.
@@ -26,10 +28,30 @@ const TAG = new RegExp(
 
 const idOf = (raw: string): string => (/^\d+$/.test(raw) ? String(Number(raw)) : raw.toUpperCase())
 
+// Words that say a phase is finished: "Phase 1 is done", "La fase 2 está
+// terminada", "## Fase 1 — Diseño (hecha)", "Étape 2 terminée", "Phase 3 ✓".
+const DONE =
+  "done|finished|completed|(?:is|are|now|'s)\\s+complete|wrapped up|terminad[ao]s?|acabad[ao]s?|hech[ao]s?|list[ao]s?|completad[ao]s?|complet[ao]s?|" +
+  'finalizad[ao]s?|cerrad[ao]s?|terminée?s?|finie?s?|achevée?s?|fertig|abgeschlossen|erledigt|conclu[ií]d[ao]s?|feit[ao]s?|pront[ao]s?|completat[ao]|finit[ao]'
+const DONE_MARK = '✓|✔|✅|☑'
+// "Finished phase 1", "Terminé la fase 1", "Completamos la etapa 2".
+const DONE_BEFORE =
+  'finished|completed|wrapped up|terminé|terminamos|acabé|acabamos|completé|completamos|finalicé|finalizamos|concluí|terminei|concluímos|achevé|terminé|abgeschlossen'
+const NOT = /(?<![\p{L}])(?:not|no|never|yet|aún|todavía|todavia|pas|nicht|noch|ainda|nog|non)(?![\p{L}])|n't/iu
+const EDGE_BEFORE = '(?<![\\p{L}\\d])'
+const EDGE_AFTER = '(?![\\p{L}\\d])'
+// "Phase 2", "fase B", "P2": a phase named in the conversation.
+const MENTION = new RegExp(`${EDGE_BEFORE}(?:(${PHASE_WORD})\\s+(\\d{1,2}|[a-z])|p(\\d{1,2}))${EDGE_AFTER}`, 'giu')
+const DONE_AFTER = new RegExp(`^([^.,;\\n]{0,30}?)(?:${EDGE_BEFORE}(?:${DONE})${EDGE_AFTER}|${DONE_MARK})`, 'iu')
+const DONE_AHEAD = new RegExp(`${EDGE_BEFORE}(?:${DONE_BEFORE})${EDGE_AFTER}([^.,;:\\n]{0,16})$`, 'iu')
+const TITLE_DONE = new RegExp(`\\s*[(\\[]?\\s*(?:(?:${DONE})|${DONE_MARK})\\s*[)\\]]?\\s*$`, 'iu')
+
 const cleanTitle = (raw: string): string =>
   raw
     .replace(/\*\*|__|`/g, '')
     .replace(/^[\s:.)·\-–—]+/, '')
+    .replace(TITLE_DONE, '')
+    .replace(/[\s:.·\-–—]+$/, '')
     .trim()
 
 /** The plan's title and phases: two or more, or none. */
@@ -67,6 +89,24 @@ export const phasesOfPlan = (markdown: string): { title: string | null; phases: 
   return { title, phases: phases.length > 0 ? phases : pick(numbered) }
 }
 
+type Mention = { id: string; isStrong: boolean; isDone: boolean }
+
+/** The plan's phases a text names, in order, and whether it says each is done. */
+export const phaseMentionsOf = (text: string, known: string[]): Mention[] => {
+  const mentions: Mention[] = []
+  for (const found of text.matchAll(MENTION)) {
+    const id = idOf(found[2] ?? found[3] ?? '')
+    if (!known.includes(id)) continue
+    const at = found.index ?? 0
+    const after = text.slice(at + found[0].length).match(DONE_AFTER)
+    const before = text.slice(Math.max(0, at - 60), at).match(DONE_AHEAD)
+    const gap = after ? after[1] ?? '' : before ? before[1] ?? '' : null
+    mentions.push({ id, isStrong: found[3] !== undefined || new RegExp(`^(?:${STRONG_WORD})$`, 'i').test(found[1] ?? ''), isDone: gap !== null && !NOT.test(gap) })
+  }
+
+  return mentions
+}
+
 /** The phase a task's subject is tagged with; a letter only when the plan has it ("PR: …" is no phase R). */
 export const phaseTagOf = (subject: string, known: string[] = []): string | undefined => {
   const found = subject.match(TAG)
@@ -77,11 +117,53 @@ export const phaseTagOf = (subject: string, known: string[] = []): string | unde
 }
 
 // ── The list as Claude changes it ──────────────────────────────────────────
+const isSamePlan = (plan: Plan, phases: PlanPhase[]) =>
+  plan.phases.length === phases.length && plan.phases.every((p, index) => p.id === phases[index]?.id)
+
+const finishedIn = (text: string, known: string[]): string[] =>
+  [...new Set(phaseMentionsOf(text, known).filter(m => m.isDone).map(m => m.id))]
+
 export const withPlan = (plan: Plan, markdown: string): Plan => {
   const { title, phases } = phasesOfPlan(markdown)
+  const finished = finishedIn(markdown, phases.map(p => p.id))
+  // The same phases again (the plan written in the chat, then approved): what
+  // was done and in hand still is.
+  if (isSamePlan(plan, phases)) {
+    return { ...plan, title: title ?? plan.title, phases, finished: [...new Set([...(plan.finished ?? []), ...finished])] }
+  }
 
   // A new plan keeps the tasks still open; the finished ones were the last plan's.
-  return { title, phases, tasks: plan.tasks.filter(t => t.status !== 'completed') }
+  return { title, phases, tasks: plan.tasks.filter(t => t.status !== 'completed'), ...(finished.length > 0 ? { finished } : {}) }
+}
+
+// A plan Claude wrote in its answer instead of plan mode: two or more
+// headings that name phases as phases. Numbered headings alone are any answer.
+const STRONG_HEADING = new RegExp(`^#{1,4}\\s+(?:\\*\\*)?(?:${STRONG_WORD})\\s+(?:\\d{1,2}|[a-z])${EDGE_AFTER}`, 'imu')
+const isPlanText = (text: string): boolean => text.split('\n').filter(line => STRONG_HEADING.test(line)).length >= 2
+
+/** The person's prompt: the phase it puts in hand, and any it says is done. */
+export const withPrompt = (plan: Plan, text: string): Plan => {
+  const mentions = phaseMentionsOf(text, plan.phases.map(p => p.id))
+  if (mentions.length === 0) return plan
+  const done = mentions.filter(m => m.isDone).map(m => m.id)
+  const asked = mentions.filter(m => !m.isDone && !done.includes(m.id))
+  // "In phase 1, step 3 fails" is about phase 1: a phase word over a step word.
+  const focus = (asked.filter(m => m.isStrong).at(-1) ?? asked.at(-1))?.id ?? plan.focus
+  const finished = [...new Set([...(plan.finished ?? []), ...done])].filter(id => id !== focus || done.includes(id))
+
+  return { ...plan, ...(focus !== undefined ? { focus } : {}), finished }
+}
+
+/** Claude's answer: a plan written out in the chat, and the phases it says are done. */
+export const withAnswer = (plan: Plan, text: string): Plan => {
+  if (isPlanText(text)) {
+    const { phases } = phasesOfPlan(text)
+    // The plan's phases again is a recap of it, not a new plan.
+    if (phases.length >= 2 && !isSamePlan(plan, phases)) return withPlan(plan, text)
+  }
+  const done = finishedIn(text, plan.phases.map(p => p.id))
+
+  return done.length === 0 ? plan : { ...plan, finished: [...new Set([...(plan.finished ?? []), ...done])] }
 }
 
 export const withTaskCreated = (plan: Plan, id: string, subject: string, phase?: unknown): Plan => {
@@ -116,9 +198,11 @@ const isStatus = (value: unknown): value is TaskStatus => value === 'pending' ||
 type ToolUse = { tool: string; input: Record<string, unknown>; result?: unknown; isError?: true }
 
 /** The plan and list a transcript holds, for a session the mod meets midway. */
-export const planFromMessages = (messages: readonly { toolUses?: readonly ToolUse[] }[]): Plan => {
+export const planFromMessages = (messages: readonly { role?: 'user' | 'assistant'; text?: string; toolUses?: readonly ToolUse[] }[]): Plan => {
   let plan = EMPTY_PLAN
   for (const message of messages) {
+    if (message.role === 'user' && message.text) plan = withPrompt(plan, message.text)
+    if (message.role === 'assistant' && message.text) plan = withAnswer(plan, message.text)
     for (const use of message.toolUses ?? []) {
       if (use.isError) continue
       const result = (use.result ?? {}) as Record<string, unknown>
@@ -153,11 +237,15 @@ export type Progress = {
   untagged: { done: number; open: number }
   /** Whether any task carries a phase tag; without one only the totals are known. */
   isTagged: boolean
+  /** Whether the phase at hand is known: from tags, or from what the conversation said. */
+  isFollowed: boolean
   isDone: boolean
 }
 
 export const planProgress = (plan: Plan): Progress | null => {
   const known = plan.phases.map(p => p.id)
+  const finished = (plan.finished ?? []).filter(id => known.includes(id))
+  const focus = plan.focus !== undefined && known.includes(plan.focus) ? plan.focus : undefined
   const tagged = plan.tasks.map(task => ({ task, phase: task.phase ?? phaseTagOf(task.subject, known) }))
   const isTagged = tagged.some(t => t.phase !== undefined)
   if (plan.phases.length < 2 && !isTagged) return null
@@ -169,8 +257,11 @@ export const planProgress = (plan: Plan): Progress | null => {
     const tasks = tagged.filter(t => t.phase === phase.id).map(t => t.task)
     const done = tasks.filter(t => t.status === 'completed').length
     const open = tasks.length - done
+    // Tasks say how a phase is going; without any, what the conversation said.
     const state: PhaseState =
-      tasks.length === 0 ? 'empty' : open === 0 ? 'done' : done > 0 || tasks.some(t => t.status === 'in_progress') ? 'active' : 'todo'
+      tasks.length === 0
+        ? finished.includes(phase.id) ? 'done' : phase.id === focus ? 'active' : 'empty'
+        : open === 0 ? 'done' : done > 0 || tasks.some(t => t.status === 'in_progress') || phase.id === focus ? 'active' : 'todo'
 
     return { ...phase, done, open, state, isBehind: false }
   })
@@ -178,7 +269,12 @@ export const planProgress = (plan: Plan): Progress | null => {
   phases.forEach((p, index) => {
     if (p.state === 'done' || p.state === 'active') last = index
   })
-  const current = last === -1 ? 0 : phases[last]?.state === 'done' && last + 1 < phases.length ? last + 1 : last
+  // The phase asked for, until it's done; then the one after the last at work.
+  const asked = phases.findIndex(p => p.id === focus)
+  const current =
+    asked !== -1 && phases[asked]?.state !== 'done'
+      ? asked
+      : last === -1 ? 0 : phases[last]?.state === 'done' && last + 1 < phases.length ? last + 1 : last
   phases.forEach((p, index) => {
     p.isBehind = index < current && p.open > 0
   })
@@ -196,7 +292,8 @@ export const planProgress = (plan: Plan): Progress | null => {
     open,
     untagged: { done: untaggedDone, open: untagged.length - untaggedDone },
     isTagged,
-    isDone: plan.tasks.length > 0 && open === 0 && (!isTagged || phases.every(p => p.state === 'done')),
+    isFollowed: isTagged || finished.length > 0 || focus !== undefined,
+    isDone: open === 0 && (isTagged || finished.length > 0 || focus !== undefined ? phases.every(p => p.state === 'done') : plan.tasks.length > 0),
   }
 }
 
@@ -211,4 +308,5 @@ export const TAG_GUIDE =
 export const planBrief = (phases: PlanPhase[]): string =>
   `This plan has ${phases.length} phases: ${phases.map(p => (p.title ? `P${p.id} ${p.title}` : `P${p.id}`)).join('; ')}. ` +
   `Start the subject of every task you create for it with its phase tag ("P${phases[0]?.id ?? 1}: …"), ` +
-  "so the person's context card counts it under its phase. If you move on while tasks of an earlier phase are still open, say so."
+  "so the person's context card counts it under its phase. When you finish a phase, say so naming it (\"Phase 1 is done\"). " +
+  'If you move on while tasks of an earlier phase are still open, say so.'

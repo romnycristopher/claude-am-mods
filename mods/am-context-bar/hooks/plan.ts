@@ -33,7 +33,7 @@ const idOf = (raw: string): string => (/^\d+$/.test(raw) ? String(Number(raw)) :
 const DONE =
   "done|finished|completed|(?:is|are|now|'s)\\s+complete|wrapped up|terminad[ao]s?|acabad[ao]s?|hech[ao]s?|list[ao]s?|completad[ao]s?|complet[ao]s?|" +
   'finalizad[ao]s?|cerrad[ao]s?|terminée?s?|finie?s?|achevée?s?|fertig|abgeschlossen|erledigt|conclu[ií]d[ao]s?|feit[ao]s?|pront[ao]s?|completat[ao]|finit[ao]'
-const DONE_MARK = '✓|✔|✅|☑'
+const DONE_MARK = '(?:✓|✔|✅|☑)\uFE0F?'
 // "Finished phase 1", "Terminé la fase 1", "Completamos la etapa 2".
 const DONE_BEFORE =
   'finished|completed|wrapped up|terminé|terminamos|acabé|acabamos|completé|completamos|finalicé|finalizamos|concluí|terminei|concluímos|achevé|terminé|abgeschlossen'
@@ -44,6 +44,11 @@ const EDGE_AFTER = '(?![\\p{L}\\d])'
 const MENTION = new RegExp(`${EDGE_BEFORE}(?:(${PHASE_WORD})\\s+(\\d{1,2}|[a-z])|p(\\d{1,2}))${EDGE_AFTER}`, 'giu')
 const DONE_AFTER = new RegExp(`^([^.,;\\n]{0,30}?)(?:${EDGE_BEFORE}(?:${DONE})${EDGE_AFTER}|${DONE_MARK})`, 'iu')
 const DONE_AHEAD = new RegExp(`${EDGE_BEFORE}(?:${DONE_BEFORE})${EDGE_AFTER}([^.,;:\\n]{0,16})$`, 'iu')
+// A heading marked as the phase at work: "## Fase 3: Probar ⏳", "## Phase 2 (in progress)".
+const TITLE_AT_WORK = new RegExp(
+  `\\s*[(\\[]?\\s*(?:(?:in progress|wip|en curso|en progreso|en marcha|en cours|in arbeit|em andamento|in corso)|(?:⏳|⌛|🔄|🚧|▶)\\uFE0F?)\\s*[)\\]]?\\s*$`,
+  'iu',
+)
 const TITLE_DONE = new RegExp(`\\s*[(\\[]?\\s*(?:(?:${DONE})|${DONE_MARK})\\s*[)\\]]?\\s*$`, 'iu')
 
 const cleanTitle = (raw: string): string =>
@@ -51,6 +56,7 @@ const cleanTitle = (raw: string): string =>
     .replace(/\*\*|__|`/g, '')
     .replace(/^[\s:.)·\-–—]+/, '')
     .replace(TITLE_DONE, '')
+    .replace(TITLE_AT_WORK, '')
     .replace(/[\s:.·\-–—]+$/, '')
     .trim()
 
@@ -123,17 +129,36 @@ const isSamePlan = (plan: Plan, phases: PlanPhase[]) =>
 const finishedIn = (text: string, known: string[]): string[] =>
   [...new Set(phaseMentionsOf(text, known).filter(m => m.isDone).map(m => m.id))]
 
+// The phases a plan's own headings mark, however long the title before the mark.
+const markedIn = (markdown: string, known: string[], mark: RegExp): string[] =>
+  markdown
+    .split('\n')
+    .map(line => line.match(WORD_HEADING))
+    .filter(found => found !== null && mark.test((found[3] ?? '').replace(/\*\*|__|`/g, '')))
+    .map(found => idOf(found?.[2] ?? ''))
+    .filter(id => known.includes(id))
+
 export const withPlan = (plan: Plan, markdown: string): Plan => {
   const { title, phases } = phasesOfPlan(markdown)
-  const finished = finishedIn(markdown, phases.map(p => p.id))
+  const known = phases.map(p => p.id)
+  const marked = new Set([...finishedIn(markdown, known), ...markedIn(markdown, known, TITLE_DONE)])
+  const finished = known.filter(id => marked.has(id))
+  const atWork = markedIn(markdown, known, TITLE_AT_WORK).at(-1)
   // The same phases again (the plan written in the chat, then approved): what
   // was done and in hand still is.
   if (isSamePlan(plan, phases)) {
-    return { ...plan, title: title ?? plan.title, phases, finished: [...new Set([...(plan.finished ?? []), ...finished])] }
+    const focus = atWork ?? plan.focus
+    return { ...plan, title: title ?? plan.title, phases, ...(focus !== undefined ? { focus } : {}), finished: [...new Set([...(plan.finished ?? []), ...finished])] }
   }
 
   // A new plan keeps the tasks still open; the finished ones were the last plan's.
-  return { title, phases, tasks: plan.tasks.filter(t => t.status !== 'completed'), ...(finished.length > 0 ? { finished } : {}) }
+  return {
+    title,
+    phases,
+    tasks: plan.tasks.filter(t => t.status !== 'completed'),
+    ...(atWork !== undefined ? { focus: atWork } : {}),
+    ...(finished.length > 0 ? { finished } : {}),
+  }
 }
 
 // A plan Claude wrote in its answer instead of plan mode: two or more
@@ -142,16 +167,36 @@ const STRONG_HEADING = new RegExp(`^#{1,4}\\s+(?:\\*\\*)?(?:${STRONG_WORD})\\s+(
 const isPlanText = (text: string): boolean => text.split('\n').filter(line => STRONG_HEADING.test(line)).length >= 2
 
 // ── Plans Claude reads ─────────────────────────────────────────────────────
-// A plan kept in a file or a doc counts once Claude reads it, when the person
-// asked for a plan ("lee el plan completo") or the file's name says it is one.
+// A plan kept in a file or a doc counts once Claude reads it, however it got
+// there: Read, cat, a docs tool, or an @file in the prompt. With no plan yet,
+// any read with phase headings is one. Over a plan already followed, only a
+// read the person asked for, or one that calls itself a plan, replaces it.
 const PLAN_WORD = new RegExp(
   `${EDGE_BEFORE}(?:plan|plans|planes|planning|planificaci[oó]n|plano|planos|piano|roadmap|hoja de ruta|feuille de route|fahrplan|` +
     `phases|fases|etapas|étapes|stages|milestones|hitos)${EDGE_AFTER}`,
   'iu',
 )
+// "lee este documento completo", "read the doc", "revisa el archivo".
+const READ_WORD = new RegExp(
+  `${EDGE_BEFORE}(?:read|reread|review|lee|leer|léelo|lea|leelo|revisa|revisar|lire|lis|relis|lies|leggi|` +
+    `document|documents|documento|documentos|doc|docs|archivo|archivos|fichero|file|files|fichier|datei|arquivo)${EDGE_AFTER}`,
+  'iu',
+)
 
 /** Whether a prompt or a file's name speaks of a plan. */
 export const namesPlan = (text: string): boolean => PLAN_WORD.test(text.replace(/[_\-.]+/g, ' '))
+
+/** Whether a prompt asks Claude to read a plan or a document. */
+export const asksToRead = (text: string): boolean => namesPlan(text) || READ_WORD.test(text) || mentionedFiles(text).length > 0
+
+/** The files a prompt names with @ ("@PLAN.md", "@\"docs/my plan.md\"", "@src/a.ts#L5-9"). */
+export const mentionedFiles = (text: string): string[] =>
+  [...text.matchAll(/(?:^|\s)@(?:"([^"]+)"|([^\s"]+))/g)]
+    .map(found => (found[1] ?? found[2] ?? '').replace(/#L?\d.*$/, '').replace(/[,.;:!?)]+$/, ''))
+    .filter(path => path !== '' && !/^[a-z][\w-]*:/i.test(path))
+
+/** Whether a text has a phase heading at all: worth reading the rest of a file it began. */
+export const hasPhaseHeading = (text: string): boolean => text.split('\n').some(line => STRONG_HEADING.test(line.replace(/^ *\d+(?:\t|→)/, '')))
 
 /** The plan a read gave Claude, when it holds one: the text less any line numbers (`cat -n`, Read). */
 export const planInRead = (text: string): string | null => {
@@ -159,6 +204,16 @@ export const planInRead = (text: string): string | null => {
   const plain = text.replace(/^ *\d+(?:\t|→)/gm, '')
 
   return isPlanText(plain) ? plain : null
+}
+
+/** A read Claude made: `name` is the file's, `isAsked` whether the person's prompt asked for a read. */
+export const withRead = (plan: Plan, text: string, name: string, isAsked: boolean): Plan => {
+  const markdown = planInRead(text)
+  if (markdown === null) return plan
+  const title = markdown.match(/^#\s+(.+)$/m)?.[1] ?? ''
+  if (plan.phases.length > 0 && !isAsked && !namesPlan(name) && !namesPlan(title)) return plan
+
+  return withPlan(plan, markdown)
 }
 
 /** The person's prompt: the phase it puts in hand, and any it says is done. */
@@ -223,11 +278,11 @@ export const PLAN_TOOLS: readonly string[] = ['ExitPlanMode', 'TaskCreate', 'Tas
 /** The plan and list a transcript holds, for a session the mod meets midway. */
 export const planFromMessages = (messages: readonly { role?: 'user' | 'assistant'; text?: string; toolUses?: readonly ToolUse[] }[]): Plan => {
   let plan = EMPTY_PLAN
-  let isPlanAsked = false
+  let isAsked = false
   for (const message of messages) {
     if (message.role === 'user' && message.text) {
       plan = withPrompt(plan, message.text)
-      isPlanAsked = namesPlan(message.text)
+      isAsked = asksToRead(message.text)
     }
     if (message.role === 'assistant' && message.text) plan = withAnswer(plan, message.text)
     for (const use of message.toolUses ?? []) {
@@ -237,8 +292,7 @@ export const planFromMessages = (messages: readonly { role?: 'user' | 'assistant
         const path = typeof use.input.file_path === 'string' ? use.input.file_path : ''
         const file = result.file as { content?: unknown } | undefined
         const read = typeof file?.content === 'string' ? file.content : use.text
-        const markdown = (isPlanAsked || namesPlan(path.split('/').at(-1) ?? '')) && read !== undefined ? planInRead(read) : null
-        if (markdown !== null) plan = withPlan(plan, markdown)
+        if (read !== undefined) plan = withRead(plan, read, path.split('/').at(-1) ?? '', isAsked)
       }
       if (use.tool === 'ExitPlanMode' && typeof result.plan === 'string') plan = withPlan(plan, result.plan)
       if (use.tool === 'TaskCreate') {

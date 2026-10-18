@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { EMPTY_PLAN, namesPlan, phaseMentionsOf, planInRead, phaseTagOf, phasesOfPlan, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from '../hooks/plan'
+import { EMPTY_PLAN, asksToRead, mentionedFiles, namesPlan, phaseMentionsOf, planInRead, withRead, phaseTagOf, phasesOfPlan, planFromMessages, planProgress, withAnswer, withPlan, withPrompt, withTaskCreated, withTaskUpdated, withTodos } from '../hooks/plan'
 import { fitExpanded, isOptionOn } from '../hooks/register'
 import type { Plan } from '../types'
 
@@ -238,13 +238,47 @@ test('a plan Claude reads counts when the person asked for one, or the file says
   expect(planInRead('     1\t# Roadmap\n     2\t## Phase 1 — A\n     3\t## Phase 2 — B')).toBe('# Roadmap\n## Phase 1 — A\n## Phase 2 — B')
   expect(planInRead('## 1. Install\n## 2. Run')).toBeNull()
 
+  // Asked to read, in any words.
+  expect(asksToRead('lee este documento completo')).toBe(true)
+  expect(asksToRead('Lee @notas.md completo')).toBe(true)
+  expect(asksToRead('read the whole thing in docs/x.md')).toBe(true)
+  expect(asksToRead('fix the build')).toBe(false)
+  expect(mentionedFiles('Lee el plan @PLAN.md completo, y @"docs/mi plan.md" y @src/a.ts#L5-9.')).toEqual(['PLAN.md', 'docs/mi plan.md', 'src/a.ts'])
+  expect(mentionedFiles('mail me@example.com or @github:issue/1')).toEqual([])
+
+  // With no plan yet, a read with phases is the plan, whatever was asked.
   const read = { tool: 'Read', input: { file_path: '/repo/docs/tienda.md' }, result: { type: 'text', file: { filePath: '/repo/docs/tienda.md', content: DOC_PLAN } } }
-  const asked = planFromMessages([{ role: 'user', text: 'lee el plan completo en docs/tienda.md', toolUses: [] }, { role: 'assistant', text: '', toolUses: [read] }])
-  expect(asked.phases.map(p => p.title)).toEqual(['Catálogo', 'Carrito', 'Pagos'])
-  // Claude reading a file with phases on its own isn't taken for the plan.
-  expect(planFromMessages([{ role: 'user', text: 'fix the build', toolUses: [] }, { role: 'assistant', text: '', toolUses: [read] }]).phases).toEqual([])
-  const named = { ...read, input: { file_path: '/repo/PLAN.md' } }
-  expect(planFromMessages([{ role: 'user', text: 'go on', toolUses: [] }, { role: 'assistant', text: '', toolUses: [named] }]).phases).toHaveLength(3)
+  const first = planFromMessages([{ role: 'user', text: 'fix the build', toolUses: [] }, { role: 'assistant', text: '', toolUses: [read] }])
+  expect(first.phases.map(p => p.title)).toEqual(['Catálogo', 'Carrito', 'Pagos'])
+
+  // Over a plan already followed, a file Claude opens for something else is left alone…
+  const other = '## Stage A — Pilot\n## Stage B — Rollout'
+  expect(withRead(first, other, 'notes.md', false).phases.map(p => p.id)).toEqual(['1', '2', '3'])
+  // …but not one the person asked to read, or one that calls itself a plan.
+  expect(withRead(first, other, 'notes.md', true).phases.map(p => p.id)).toEqual(['A', 'B'])
+  expect(withRead(first, other, 'PLAN.md', false).phases.map(p => p.id)).toEqual(['A', 'B'])
+  expect(withRead(first, `# Plan de lanzamiento\n${other}`, 'notes.md', false).phases.map(p => p.id)).toEqual(['A', 'B'])
+})
+
+// The plan a person kept in their test project, marks and all.
+const MARKED_PLAN = [
+  '# Plan: función `sumar_tres(a, b, c)`',
+  '',
+  '## Fase 1: Definir el comportamiento de la función con todos sus casos ✅',
+  '- **Firma:** `sumar_tres(a, b, c) -> número`',
+  '## Fase 2: Implementar ✅',
+  '## Fase 3: Probar y verificar ⏳',
+].join('\n')
+
+test("a plan's own marks say what is done and what is at work", async () => {
+  const plan = withPlan(EMPTY_PLAN, MARKED_PLAN)
+  expect(plan.phases.map(p => p.title)).toEqual(['Definir el comportamiento de la función con todos sus casos', 'Implementar', 'Probar y verificar'])
+  expect(plan.finished).toEqual(['1', '2'])
+  expect(plan.focus).toBe('3')
+  const p = planProgress(plan)
+  expect(p?.phases.map(ph => ph.state)).toEqual(['done', 'done', 'active'])
+  expect(p?.current).toBe(2)
+  expect(withPlan(EMPTY_PLAN, '## Phase 1 — A (in progress)\n## Phase 2 — B').focus).toBe('1')
 })
 
 test('the expanded card shrinks the plan to one line before folding categories', async () => {
@@ -440,12 +474,7 @@ test('a plan in a document Claude reads shows on the card, whole', async ($, on)
   const typed = (text: string) => ({ text, wait: false, origin: { kind: 'composer' } }) as const
   const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
 
-  // Not asked about a plan: a file with phases is just a file.
-  await $.prompt.submit(typed('fix the build'))
-  expect((await $.tool.call({ tool: 'Read', file_path: '/repo/docs/tienda.md' })).context).toBeUndefined()
-  expect(await ui.find({ type: 'Text', text: '3 phases' })).toBeUndefined()
-
-  await $.prompt.submit(typed('lee el plan completo en docs/tienda.md'))
+  await $.prompt.submit(typed('lee este documento completo: docs/tienda.md'))
   // One page of it was read; the card takes the whole file, and Claude its tags.
   const read = await $.tool.call({ tool: 'Read', file_path: '/repo/docs/tienda.md' })
   expect(read.context?.join('\n')).toMatch(/3 phases: P1 Catálogo; P2 Carrito; P3 Pagos/)
@@ -455,5 +484,24 @@ test('a plan in a document Claude reads shows on the card, whole', async ($, on)
   // Read again, the same plan keeps its place and tells Claude nothing new.
   expect((await $.tool.call({ tool: 'Read', file_path: '/repo/docs/tienda.md' })).context).toBeUndefined()
   expect(await ui.find({ type: 'Text', text: 'Phase 1/3' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a plan in an @file of the prompt shows on the card, with no Read', async ($, on) => {
+  const reads: string[] = []
+  on('prompt.submit', ($, e) => ({ text: e.text, context: e.context }))
+  on('session.cwd', () => ({ value: '/repo' }))
+  on('fs.read', ($, e) => {
+    reads.push(e.path)
+
+    return { value: MARKED_PLAN }
+  })
+  await startCard($, on)
+  const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
+  const sent = await $.prompt.submit({ text: 'Lee @PLAN.md completo', wait: false, origin: { kind: 'composer' } })
+  expect(reads).toEqual(['/repo/PLAN.md'])
+  expect('context' in sent ? sent.context?.join('\n') : '').toMatch(/3 phases: P1 Definir/)
+  expect(await ui.find({ type: 'Text', text: 'Phase 3/3' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: 'in progress' })).toBeDefined()
   await ui.unmount()
 })

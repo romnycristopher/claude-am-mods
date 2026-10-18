@@ -4,7 +4,7 @@
 
 **Live UI mods for the [Claude Code](https://claude.com/claude-code) terminal.**
 
-[![Version](https://img.shields.io/badge/am--context--bar-0.4.3-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
+[![Version](https://img.shields.io/badge/am--context--bar-0.4.4-4F7FD9)](mods/am-context-bar/.claude-plugin/plugin.json)
 [![License: MIT](https://img.shields.io/badge/license-MIT-3FA34D)](LICENSE)
 [![Claude Code plugin](https://img.shields.io/badge/Claude%20Code-plugin-D97757)](https://claude.com/claude-code)
 
@@ -29,7 +29,7 @@ Long sessions slow down and get worse well before the context window is full. **
 ### At a glance
 
 - **How full the context is**: tokens used out of the window, and the percentage, coloured by zone (green, yellow, orange, red).
-- **The dumb zone**: the bar marks where the dumb zone starts (50% by default, where answers tend to get worse) and where auto-compact kicks in.
+- **The dumb zone**: the bar marks where the dumb zone starts (where answers tend to get worse: 50% of the window, or 250k tokens on large windows) and where auto-compact kicks in.
 - **What's filling it**: tools, MCP servers, skills, the system prompt, memory files and your messages, each in its own colour.
 - **Runway**: how many tokens each turn adds and how many turns that leaves before the next mark.
 - **Plan limits**: session and weekly usage, and when they reset.
@@ -113,7 +113,7 @@ From top to bottom:
 
 1. **Count and runway.** The runway is the average a turn added over the last five turns, and how many turns like that are left before the dumb zone, then before auto-compact once you're past it. Until a turn has been measured, it shows the tokens left to the next mark instead (`391k to dumb zone`). It starts over after a compaction or a `/clear`.
 2. **The bar**, split by category, with the dumb zone shaded and auto-compact marked.
-3. **The legend**: tokens used, free space, where the dumb zone starts (a range ten points below the **Dumb zone starts at** setting, since quality tails off rather than dropping at one point), and the buffer reserved for auto-compact.
+3. **The legend**: tokens used, free space, where the dumb zone starts (a range just below it, since quality tails off rather than dropping at one point: `200k–250k (20–25%)` on a 1M window), and the buffer reserved for auto-compact.
 4. **What's using it**: every category, largest first, with a bar relative to the largest, its tokens and its share of what's used.
 5. **Limits**: session (five-hour) and weekly usage, green below 50%, yellow from 50%, orange from 80% and red from 95%, with their reset times.
 6. **Session**: the model, the thinking effort and the number of compactions, with the git status at the right.
@@ -193,12 +193,14 @@ its phase tag: `P1: …`, `P2: …` (`P2.3: …` for step 2.3).
 
 The count, the status pill and the V3 bar change colour with how full the window is:
 
-| Zone | Default range | Colour |
-| --- | --- | --- |
-| Plenty of room | under 35% | green |
-| Nearing dumb zone | 35–50% | yellow |
-| Dumb zone | 50–85% | orange |
-| Compact soon | 85% and up | red |
+| Zone | 200K window | 1M window | Colour |
+| --- | --- | --- | --- |
+| Plenty of room | under 35% (70k) | under 175k | green |
+| Nearing dumb zone | 35–50% (70k–100k) | 175k–250k | yellow |
+| Dumb zone | 50–85% (100k–170k) | 250k up to 85% | orange |
+| Compact soon | 85% and up | 85% and up | red |
+
+Quality tails off with the tokens in context, not with how full the window is, so on large windows the dumb zone starts by 250k tokens at the latest, and the yellow mark keeps its distance below it. Nobody has an official number for this. Anthropic describes [context rot](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) as a gradient, not a cliff, and developers report the slide on 1M windows somewhere between 120k and 250k tokens. 250k is the late end of that range: lower it if you see it sooner, or set it to `0` to go by percentage alone.
 
 All four colours come from your theme, so they stay readable in light and dark themes. The cut-offs are [settings](#settings).
 
@@ -223,6 +225,7 @@ Change these in **`/config`**, under am-context-bar:
 | Layout | `layout` | `three-rows` | The collapsed layout: `three-rows`, `two-rows` or `one-row`. The same setting `/am-context-bar layout` changes. |
 | Nearing dumb zone at (%) | `nearingAt` | `35` | Where the count turns yellow. |
 | Dumb zone starts at (%) | `dumbZoneAt` | `50` | Where the dumb zone starts: marked on the bar, and the count turns orange. |
+| Dumb zone starts by (tokens) | `dumbZoneTokens` | `250000` | On large windows the dumb zone starts here at the latest, whatever the percentage. `0` turns it off. |
 | Compact soon at (%) | `compactSoonAt` | `85` | Where the count turns red. |
 | Plan progress | `planProgress` | `true` | Follows the phases of a plan, approved or written in the chat, and asks Claude to tag tasks with their phase. |
 

@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, longLabel, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { contextBarSvg, thresholdsFor, dumbTokensFrom, DEFAULT_THRESHOLDS, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, longLabel, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 import type { Growth } from '../types'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
@@ -92,6 +92,18 @@ test('zones follow the thresholds', async () => {
   expect(zoneOf(45, t).label).toBe('Dumb zone')
   // Out-of-order settings fall back to the defaults.
   expect(thresholdsFrom({ nearingAt: 60, dumbZoneAt: 40 }).dumb).toBe(50)
+  // Past 250k tokens a large window is in the dumb zone whatever its percentage.
+  expect(thresholdsFor(DEFAULT_THRESHOLDS, 200_000, 250_000)).toEqual(DEFAULT_THRESHOLDS)
+  const big = thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 250_000)
+  expect(big).toEqual({ nearing: 17.5, dumb: 25, compact: 85 })
+  expect(zoneOf(11, big).label).toBe('Plenty of room')
+  expect(zoneOf(20, big).label).toBe('Nearing dumb zone')
+  expect(zoneOf(30, big).label).toBe('Dumb zone')
+  expect(thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 0)).toEqual(DEFAULT_THRESHOLDS)
+  expect(dumbTokensFrom(undefined)).toBe(250_000)
+  expect(dumbTokensFrom({ dumbZoneTokens: 0 })).toBe(0)
+  expect(dumbTokensFrom({ dumbZoneTokens: '400000' })).toBe(400_000)
+  expect(dumbTokensFrom({ dumbZoneTokens: -1 })).toBe(250_000)
 })
 
 test('formats labels and bars', async () => {
@@ -315,8 +327,9 @@ test('a short band folds the smallest categories into Other', async ($, on) => {
     const roomy = await $.ui.mount({ plugin: 'am-context-bar', surface, ...BAND })
     expect(await roomy.find({ type: 'Text', text: "WHAT'S USING IT" })).toBeDefined()
     expect(await roomy.find({ type: 'Text', text: 'System tools' })).toBeDefined()
-    expect(await roomy.find({ type: 'Text', text: '40–50%' })).toBeDefined()
-    expect(await roomy.find({ type: 'Text', text: ' (400k–500k)' })).toBeDefined()
+    // A 1M window: the dumb zone starts by 250k tokens, not at 50%.
+    expect(await roomy.find({ type: 'Text', text: '200k–250k' })).toBeDefined()
+    expect(await roomy.find({ type: 'Text', text: ' (20–25%)' })).toBeDefined()
     expect(await roomy.find({ type: 'Text', text: /^Other/ })).toBeUndefined()
     await roomy.unmount()
 
@@ -399,26 +412,26 @@ test('the expanded card shows the runway once turns are measured', async ($, on)
   })
   const ui = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND })
   // No turn measured yet: the tokens left to the dumb zone.
-  expect(await ui.find({ type: 'Text', text: '410k' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '160k' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' to dumb zone' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' until auto-compact' })).toBeUndefined()
 
   // The fill at load (90k) is the baseline: one turn gives a rate.
   await $.session.measure({ context: { tokens: 100_000, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
   expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '410k' })).toBeUndefined()
+  expect(await ui.find({ type: 'Text', text: '160k' })).toBeUndefined()
 
   for (const tokens of [70_000, 80_000, 90_000]) {
     await $.session.measure({ context: { tokens, window: 1_000_000 }, rateLimits: [], changed: ['context'] })
   }
-  // 10k a turn, 90k used, the dumb zone from 500k: 41 turns.
+  // 10k a turn, 90k used, the dumb zone from 250k on a 1M window: 16 turns.
   expect(await ui.find({ type: 'Text', text: '+10k/turn' })).toBeDefined()
-  expect(await ui.find({ type: 'Text', text: '~41 turns' })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: '~16 turns' })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: ' to dumb zone' })).toBeDefined()
 
   // Too narrow for both: the turns stay, the rate goes.
   const narrow = await $.ui.mount({ plugin: 'am-context-bar', surface: 'terminal', ...BAND, props: { ...BAND.props, bodyColumns: 70 } })
-  expect(await narrow.find({ type: 'Text', text: '~41 turns' })).toBeDefined()
+  expect(await narrow.find({ type: 'Text', text: '~16 turns' })).toBeDefined()
   expect(await narrow.find({ type: 'Text', text: '+10k/turn' })).toBeUndefined()
   await narrow.unmount()
   await ui.unmount()

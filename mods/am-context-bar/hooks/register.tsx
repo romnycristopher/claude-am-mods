@@ -65,6 +65,9 @@ export type Zone = { id: ZoneId; label: string; color: Color }
 export type Thresholds = { nearing: number; dumb: number; compact: number }
 
 export const DEFAULT_THRESHOLDS: Thresholds = { nearing: 35, dumb: 50, compact: 85 }
+// Quality tails off by how many tokens are in context, not how full the
+// window is: on a 1M window the dumb zone starts here at the latest.
+export const DEFAULT_DUMB_TOKENS = 250_000
 
 const ZONES: Record<ZoneId, Zone> = {
   clear: { id: 'clear', label: 'Plenty of room', color: 'success' },
@@ -95,6 +98,26 @@ export const thresholdsFrom = (options: PluginOptions | undefined): Thresholds =
   }
 
   return t.nearing < t.dumb && t.dumb < t.compact ? t : DEFAULT_THRESHOLDS
+}
+
+/** The token cap on the dumb zone's start; 0 turns it off. */
+export const dumbTokensFrom = (options: PluginOptions | undefined): number => {
+  const value = options?.dumbZoneTokens
+  const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
+
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_DUMB_TOKENS
+}
+
+/**
+ * The thresholds for a window: past the token cap the dumb zone starts at the
+ * cap, and the nearing mark keeps its distance below it. Compact soon is
+ * about auto-compact, not quality, so it stays where it was.
+ */
+export const thresholdsFor = (t: Thresholds, window: number, dumbTokens: number): Thresholds => {
+  if (dumbTokens <= 0 || window <= 0 || (window * t.dumb) / 100 <= dumbTokens) return t
+  const dumb = (dumbTokens / window) * 100
+
+  return { ...t, nearing: (dumb * t.nearing) / t.dumb, dumb }
 }
 
 // ── Layouts ────────────────────────────────────────────────────────────────
@@ -521,6 +544,7 @@ const hasRun = (e: { agentId?: string }, ran: { deny?: string; isError?: boolean
 // ── Hooks ──────────────────────────────────────────────────────────────────
 export const register: Register = (on, options) => {
   const thresholds = thresholdsFrom(options)
+  const dumbTokens = dumbTokensFrom(options)
   const layout = layoutFrom(options)
   const isPlanOn = isOptionOn(options?.planProgress)
 
@@ -749,8 +773,9 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const window = snap.windowTokens || 1
     const percent = percentOf(snap.usedTokens, window)
-    const zone = zoneOf(percent, thresholds)
-    const dumbFrom = (window * thresholds.dumb) / 100
+    const marks = thresholdsFor(thresholds, window, dumbTokens)
+    const zone = zoneOf(percent, marks)
+    const dumbFrom = (window * marks.dumb) / 100
     const used = snap.segments
       .filter(s => s.kind === 'used' && s.tokens > 0)
       .map((segment, index) => ({ segment, color: colorOf(segment, index) }))
@@ -1127,7 +1152,9 @@ export const register: Register = (on, options) => {
         <Text>{value}</Text>
       </Box>
     )
-    const dumbLow = Math.max(0, thresholds.dumb - 10)
+    // The dumb zone's start as a range ten points below the setting, since
+    // quality tails off rather than dropping at one point.
+    const dumbLow = (marks.dumb * Math.max(0, thresholds.dumb - 10)) / thresholds.dumb
     // The runway, top right: the fill a turn adds and the turns left to the
     // next mark; before a turn has been measured, the tokens left to it.
     // The rate goes first when the row is too narrow for both.
@@ -1298,11 +1325,11 @@ export const register: Register = (on, options) => {
             </Text>
             <Text dimColor>Dumb zone starts around </Text>
             <Text>
-              {dumbLow}–{thresholds.dumb}%
+              {formatTokens((window * dumbLow) / 100)}–{formatTokens(dumbFrom)}
             </Text>
             <Text dimColor>
               {' '}
-              ({formatTokens((window * dumbLow) / 100)}–{formatTokens(dumbFrom)})
+              ({Math.round(dumbLow)}–{Math.round(marks.dumb)}%)
             </Text>
           </Box>
           {buffer !== undefined && (

@@ -29,7 +29,7 @@ Long sessions slow down and get worse well before the context window is full. **
 ### At a glance
 
 - **How full the context is**: tokens used out of the window, and the percentage, coloured by zone (green, yellow, orange, red).
-- **The dumb zone**: the bar marks where the dumb zone starts (where answers tend to get worse: 50% of the window, or 250k tokens on large windows) and where auto-compact kicks in.
+- **The dumb zone**: the bar marks where the dumb zone starts (where answers tend to get worse: 50% of the window, or 250k tokens on large windows), where it's time to compact or `/clear` (70%, or 400k tokens), and where auto-compact kicks in.
 - **What's filling it**: tools, MCP servers, skills, the system prompt, memory files and your messages, each in its own colour.
 - **Runway**: how many tokens each turn adds and how many turns that leaves before the next mark.
 - **Plan limits**: session and weekly usage, and when they reset.
@@ -92,7 +92,7 @@ Everything on one line. The bar is a single fill in the zone's colour, so it tur
 | --- | --- |
 | `109k / 1M · 11%` | Tokens in context, the window size and the percentage used. The count takes the zone's colour. |
 | `● Plenty of room` | The current [zone](#zones). |
-| Bar | The context window. `│` in orange is where the dumb zone starts, `│` in the text colour is auto-compact, and `╱╱` is the reserved buffer after it. |
+| Bar | The context window. `│` in orange is where the dumb zone starts, `│` in red is where to compact or `/clear`, `│` in the text colour is auto-compact, and `╱╱` is the reserved buffer after it. |
 | Legend | What's using the context. **MCP** combines MCP tools and MCP instructions, **System** combines the system prompt and memory files, and parts under 3% are left out of the legend (they stay in the bar). **Messages**, the part that grows as you talk, always comes last, after a `│`. |
 | `Opus 5.5 · Thinking high` | The model, and the thinking effort the last request was sent with (`default` until the first one). |
 | `Resets 1h 5m` | When the session limit resets. |
@@ -111,9 +111,9 @@ Press **`▾`** (or run `/am-context-bar expand`) for the full picture. Press **
 
 From top to bottom:
 
-1. **Count and runway.** The runway is the average a turn added over the last five turns, and how many turns like that are left before the dumb zone, then before auto-compact once you're past it. Until a turn has been measured, it shows the tokens left to the next mark instead (`391k to dumb zone`). It starts over after a compaction or a `/clear`.
-2. **The bar**, split by category, with the dumb zone shaded and auto-compact marked.
-3. **The legend**: tokens used, free space, where the dumb zone starts (a range just below it, since quality tails off rather than dropping at one point: `200k–250k (20–25%)` on a 1M window), and the buffer reserved for auto-compact.
+1. **Count and runway.** The runway is the average a turn added over the last five turns, and how many turns like that are left before the next mark: the dumb zone, then where to compact or clear, then auto-compact. Until a turn has been measured, it shows the tokens left to the next mark instead (`391k to dumb zone`). It starts over after a compaction or a `/clear`.
+2. **The bar**, split by category, with the dumb zone shaded orange, the stretch past where to compact or clear shaded red, and auto-compact marked.
+3. **The legend**: tokens used, free space, where the dumb zone starts (a range just below it, since quality tails off rather than dropping at one point: `200k–250k (20–25%)` on a 1M window), where to compact or clear (`400k (40%)`), and the buffer reserved for auto-compact.
 4. **What's using it**: every category, largest first, with a bar relative to the largest, its tokens and its share of what's used.
 5. **Limits**: session (five-hour) and weekly usage, green below 50%, yellow from 50%, orange from 80% and red from 95%, with their reset times.
 6. **Session**: the model, the thinking effort and the number of compactions, with the git status at the right.
@@ -197,10 +197,12 @@ The count, the status pill and the V3 bar change colour with how full the window
 | --- | --- | --- | --- |
 | Plenty of room | under 35% (70k) | under 175k | green |
 | Nearing dumb zone | 35–50% (70k–100k) | 175k–250k | yellow |
-| Dumb zone | 50–85% (100k–170k) | 250k up to 85% | orange |
-| Compact soon | 85% and up | 85% and up | red |
+| Dumb zone | 50–70% (100k–140k) | 250k–400k | orange |
+| Compact or clear | 70% and up (140k) | 400k and up | red |
 
 Quality tails off with the tokens in context, not with how full the window is, so on large windows the dumb zone starts by 250k tokens at the latest, and the yellow mark keeps its distance below it. Nobody has an official number for this. Anthropic describes [context rot](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) as a gradient, not a cliff, and developers report the slide on 1M windows somewhere between 120k and 250k tokens. 250k is the late end of that range: lower it if you see it sooner, or set it to `0` to go by percentage alone.
+
+Past the dumb zone answers keep sliding, and the red zone is where to stop and compact or `/clear` rather than wait for auto-compact, which on a large window comes far later. Developers put that point at 120k–150k tokens on 200K windows and around 400k–500k on 1M windows ([1](https://github.com/anthropics/claude-code/issues/34685), [2](https://github.com/anthropics/claude-code/issues/35296), [3](https://www.albertsikkema.com/ai/development/tools/2026/04/23/smaller-context-window-better-claude-code.html)), so it starts at the lower of 70% and 400k tokens. It's marked only when it comes before auto-compact.
 
 All four colours come from your theme, so they stay readable in light and dark themes. The cut-offs are [settings](#settings).
 
@@ -226,10 +228,11 @@ Change these in **`/config`**, under am-context-bar:
 | Nearing dumb zone at (%) | `nearingAt` | `35` | Where the count turns yellow. |
 | Dumb zone starts at (%) | `dumbZoneAt` | `50` | Where the dumb zone starts: marked on the bar, and the count turns orange. |
 | Dumb zone starts by (tokens) | `dumbZoneTokens` | `250000` | On large windows the dumb zone starts here at the latest, whatever the percentage. `0` turns it off. |
-| Compact soon at (%) | `compactSoonAt` | `85` | Where the count turns red. |
+| Compact or clear at (%) | `compactNowAt` | `70` | Where it's time to compact or `/clear`: marked on the bar, and the count turns red. |
+| Compact or clear by (tokens) | `compactNowTokens` | `400000` | On large windows it's time to compact or clear here at the latest, whatever the percentage. `0` turns it off. |
 | Plan progress | `planProgress` | `true` | Follows the phases of a plan, approved or written in the chat, and asks Claude to tag tasks with their phase. |
 
-The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactSoonAt`). If they don't, the card falls back to the defaults.
+The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactNowAt`). If they don't, the card falls back to the defaults.
 
 You can also set them at install time:
 

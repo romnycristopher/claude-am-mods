@@ -1,7 +1,7 @@
 {
   "name": "am-context-bar",
-  "version": "0.4.4",
-  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50%, or 250k tokens on large windows), context bar with the dumb zone and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git, and progress through a plan's phases. Three layouts. /am-context-bar on | off | layout v1|v2|v3 | plan on|off.",
+  "version": "0.5.0",
+  "description": "A context card above the prompt with a collapsed and an expanded view: zone-coloured token count (dumb zone from 50% or 250k tokens, compact or clear from 70% or 400k), context bar with the dumb zone, where to compact or clear and auto-compact marked, breakdown by category, limits, model, thinking, compactions, git, and progress through a plan's phases. Three layouts. /am-context-bar on | off | layout v1|v2|v3 | plan on|off.",
   "author": {
     "name": "romnycristopher"
   },
@@ -44,13 +44,21 @@
       "min": 1,
       "max": 99
     },
-    "compactSoonAt": {
+    "compactNowAt": {
       "type": "number",
-      "title": "Compact soon at (%)",
-      "description": "Context percentage where the count turns red.",
-      "default": 85,
+      "title": "Compact or clear at (%)",
+      "description": "Context percentage where it's time to compact or /clear: marked on the bar and the count turns red.",
+      "default": 70,
       "min": 1,
       "max": 99
+    },
+    "compactNowTokens": {
+      "type": "number",
+      "title": "Compact or clear by (tokens)",
+      "description": "On large windows it's time to compact or /clear here at the latest, whatever the percentage. 0 turns the cap off.",
+      "default": 400000,
+      "min": 0,
+      "max": 10000000
     },
     "planProgress": {
       "type": "boolean",

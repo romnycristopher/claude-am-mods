@@ -40,9 +40,9 @@ const colorOf = (segment: Segment, index: number): string => {
 // The SVG bars can't read theme keys, so they carry both palettes and pick by
 // the colour scheme the desktop draws in.
 const SVG_STYLE =
-  '<style>.t{fill:#EFEDE6}.d{fill:#C86E14;fill-opacity:.10}.h{stroke:#C9C4B6}.k{fill:#B4540A}.m{fill:#1C1B19}' +
+  '<style>.t{fill:#EFEDE6}.d{fill:#C86E14;fill-opacity:.10}.e{fill:#D63A2C;fill-opacity:.10}.h{stroke:#C9C4B6}.k{fill:#B4540A}.m{fill:#1C1B19}' +
   '.z-clear{fill:#3FA34D}.z-nearing{fill:#D4A72C}.z-dumb{fill:#E07020}.z-compact{fill:#D63A2C}' +
-  '@media (prefers-color-scheme:dark){.t{fill:#34322D}.d{fill:#F59A52}.h{stroke:#5A574F}.k{fill:#F59A52}.m{fill:#EDEBE4}' +
+  '@media (prefers-color-scheme:dark){.t{fill:#34322D}.d{fill:#F59A52}.e{fill:#F0584A}.h{stroke:#5A574F}.k{fill:#F59A52}.m{fill:#EDEBE4}' +
   '.z-clear{fill:#5CC172}.z-nearing{fill:#E3B341}.z-dumb{fill:#F08A3C}.z-compact{fill:#F0584A}}</style>'
 
 // The bar fills with the zone's colour, so it turns from green to red as the
@@ -64,16 +64,19 @@ export type ZoneId = 'clear' | 'nearing' | 'dumb' | 'compact'
 export type Zone = { id: ZoneId; label: string; color: Color }
 export type Thresholds = { nearing: number; dumb: number; compact: number }
 
-export const DEFAULT_THRESHOLDS: Thresholds = { nearing: 35, dumb: 50, compact: 85 }
+export const DEFAULT_THRESHOLDS: Thresholds = { nearing: 35, dumb: 50, compact: 70 }
 // Quality tails off by how many tokens are in context, not how full the
 // window is: on a 1M window the dumb zone starts here at the latest.
 export const DEFAULT_DUMB_TOKENS = 250_000
+// Past the dumb zone answers keep sliding; by here it is time to compact or
+// /clear, whatever the window.
+export const DEFAULT_COMPACT_TOKENS = 400_000
 
 const ZONES: Record<ZoneId, Zone> = {
   clear: { id: 'clear', label: 'Plenty of room', color: 'success' },
   nearing: { id: 'nearing', label: 'Nearing dumb zone', color: 'warning' },
   dumb: { id: 'dumb', label: 'Dumb zone', color: 'claude' },
-  compact: { id: 'compact', label: 'Compact soon', color: 'error' },
+  compact: { id: 'compact', label: 'Compact or clear', color: 'error' },
 }
 
 export const zoneOf = (percent: number, t: Thresholds = DEFAULT_THRESHOLDS): Zone => {
@@ -94,30 +97,38 @@ export const thresholdsFrom = (options: PluginOptions | undefined): Thresholds =
   const t = {
     nearing: numberOption(options?.nearingAt, DEFAULT_THRESHOLDS.nearing),
     dumb: numberOption(options?.dumbZoneAt, DEFAULT_THRESHOLDS.dumb),
-    compact: numberOption(options?.compactSoonAt, DEFAULT_THRESHOLDS.compact),
+    compact: numberOption(options?.compactNowAt, DEFAULT_THRESHOLDS.compact),
   }
 
   return t.nearing < t.dumb && t.dumb < t.compact ? t : DEFAULT_THRESHOLDS
 }
 
-/** The token cap on the dumb zone's start; 0 turns it off. */
-export const dumbTokensFrom = (options: PluginOptions | undefined): number => {
-  const value = options?.dumbZoneTokens
+const tokensOption = (value: unknown, fallback: number): number => {
   const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() !== '' ? Number(value) : NaN
 
-  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_DUMB_TOKENS
+  return Number.isFinite(n) && n >= 0 ? n : fallback
 }
 
-/**
- * The thresholds for a window: past the token cap the dumb zone starts at the
- * cap, and the nearing mark keeps its distance below it. Compact soon is
- * about auto-compact, not quality, so it stays where it was.
- */
-export const thresholdsFor = (t: Thresholds, window: number, dumbTokens: number): Thresholds => {
-  if (dumbTokens <= 0 || window <= 0 || (window * t.dumb) / 100 <= dumbTokens) return t
-  const dumb = (dumbTokens / window) * 100
+/** The token cap on the dumb zone's start; 0 turns it off. */
+export const dumbTokensFrom = (options: PluginOptions | undefined): number => tokensOption(options?.dumbZoneTokens, DEFAULT_DUMB_TOKENS)
 
-  return { ...t, nearing: (dumb * t.nearing) / t.dumb, dumb }
+/** The token cap on where to compact or clear; 0 turns it off. */
+export const compactTokensFrom = (options: PluginOptions | undefined): number =>
+  tokensOption(options?.compactNowTokens, DEFAULT_COMPACT_TOKENS)
+
+/**
+ * The thresholds for a window: past its token cap the dumb zone starts at the
+ * cap, and the nearing mark keeps its distance below it. The compact-or-clear
+ * mark has its own cap, kept only while it comes after the dumb zone's start.
+ */
+export const thresholdsFor = (t: Thresholds, window: number, dumbTokens: number, compactTokens = 0): Thresholds => {
+  if (window <= 0) return t
+  const cap = (percent: number, tokens: number) => (tokens > 0 && (window * percent) / 100 > tokens ? (tokens / window) * 100 : percent)
+  const dumb = cap(t.dumb, dumbTokens)
+  const compact = cap(t.compact, compactTokens)
+  const marks = dumb === t.dumb ? t : { ...t, nearing: (dumb * t.nearing) / t.dumb, dumb }
+
+  return compact === t.compact || compact <= dumb ? marks : { ...marks, compact }
 }
 
 // ── Layouts ────────────────────────────────────────────────────────────────
@@ -280,7 +291,8 @@ export const formatReset = (resetsAt: string | undefined, at: number): string | 
 // ── Runway ─────────────────────────────────────────────────────────────────
 // How fast the context fills: the average a turn added over the last few, and
 // how many turns like them are left before the next mark (the dumb zone, then
-// auto-compact). A fill that shrank was compacted, so the count starts over.
+// where to compact or clear, then auto-compact). A fill that shrank was
+// compacted, so the count starts over.
 const RUNWAY_TURNS = 5
 
 export const recordTurn = (g: Growth, tokens: number): Growth => {
@@ -290,17 +302,23 @@ export const recordTurn = (g: Growth, tokens: number): Growth => {
   return { lastTokens: tokens, deltas: delta > 0 ? [...g.deltas, delta].slice(-RUNWAY_TURNS) : g.deltas }
 }
 
-export type Runway = { perTurn: number; turns?: number; to?: 'dumb zone' | 'auto-compact' }
+export type MarkName = 'dumb zone' | 'compact or clear' | 'auto-compact'
+export type Runway = { perTurn: number; turns?: number; to?: MarkName }
 
-export const runwayOf = (deltas: number[], used: number, dumbFrom: number, compactsAt?: number): Runway | null => {
+/** The closest mark still ahead of the fill. */
+export const nextMarkOf = (used: number, dumbFrom: number, compactFrom: number, compactsAt?: number): { at: number; to: MarkName } | undefined =>
+  [
+    { at: dumbFrom, to: 'dumb zone' as const },
+    { at: compactFrom, to: 'compact or clear' as const },
+    ...(compactsAt === undefined ? [] : [{ at: compactsAt, to: 'auto-compact' as const }]),
+  ]
+    .filter(mark => used < mark.at)
+    .sort((a, b) => a.at - b.at)[0]
+
+export const runwayOf = (deltas: number[], used: number, dumbFrom: number, compactFrom: number, compactsAt?: number): Runway | null => {
   if (deltas.length === 0) return null
   const perTurn = Math.round(deltas.reduce((sum, d) => sum + d, 0) / deltas.length)
-  const mark =
-    used < dumbFrom
-      ? { at: dumbFrom, to: 'dumb zone' as const }
-      : compactsAt !== undefined && used < compactsAt
-        ? { at: compactsAt, to: 'auto-compact' as const }
-        : undefined
+  const mark = nextMarkOf(used, dumbFrom, compactFrom, compactsAt)
   if (mark === undefined) return { perTurn }
 
   return { perTurn, turns: Math.max(1, Math.ceil((mark.at - used) / perTurn)), to: mark.to }
@@ -310,7 +328,7 @@ export const runwayOf = (deltas: number[], used: number, dumbFrom: number, compa
 type Part = { tokens: number; color: string }
 
 // `pad` is clear space above and below the bar, in bar heights.
-export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, compactsAt?: number, pad = 0): string => {
+export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, compactFrom: number, compactsAt?: number, pad = 0): string => {
   const W = 1000
   const H = 12
   const P = H * pad
@@ -328,10 +346,15 @@ export const contextBarSvg = (parts: Part[], window: number, dumbFrom: number, c
     .join('')
   const dz0 = x(dumbFrom)
   const dz1 = compactsAt === undefined ? W : x(compactsAt)
-  const tint = dz1 > dz0 ? `<rect class="d" x="${dz0.toFixed(2)}" width="${(dz1 - dz0).toFixed(2)}" height="${H}"/>` : ''
+  // Where to compact or clear, marked only when it comes before auto-compact.
+  const cc = Math.min(x(compactFrom), dz1)
+  const tint =
+    (cc > dz0 ? `<rect class="d" x="${dz0.toFixed(2)}" width="${(cc - dz0).toFixed(2)}" height="${H}"/>` : '') +
+    (dz1 > cc ? `<rect class="e" x="${cc.toFixed(2)}" width="${(dz1 - cc).toFixed(2)}" height="${H}"/>` : '')
   const buffer = compactsAt === undefined ? '' : `<rect x="${dz1.toFixed(2)}" width="${(W - dz1).toFixed(2)}" height="${H}" fill="url(#h)"/>`
   const ticks =
     `<rect class="k" x="${(dz0 - 1.5).toFixed(2)}" width="3" height="${H}"/>` +
+    (cc < dz1 ? `<rect class="z-compact" x="${(cc - 1.5).toFixed(2)}" width="3" height="${H}"/>` : '') +
     (compactsAt === undefined ? '' : `<rect class="m" x="${(dz1 - 1.5).toFixed(2)}" width="3" height="${H}"/>`)
 
   return (
@@ -363,6 +386,7 @@ export const terminalBar = (
   parts: Part[],
   window: number,
   dumbFrom: number,
+  compactFrom: number,
   compactsAt?: number,
 ): Run[] => {
   const bounds: { end: number; color: string }[] = []
@@ -374,6 +398,9 @@ export const terminalBar = (
   const cellOf = (t: number) => Math.min(cells - 1, Math.floor((t / Math.max(1, window)) * cells))
   const dumbCell = cellOf(dumbFrom)
   const compactCell = compactsAt === undefined ? -1 : cellOf(compactsAt)
+  // Where to compact or clear, marked only when it comes before auto-compact.
+  const clearFrom = compactsAt === undefined || compactFrom < compactsAt ? compactFrom : Infinity
+  const clearCell = clearFrom === Infinity ? -1 : cellOf(clearFrom)
   const runs: Run[] = []
   for (let i = 0; i < cells; i++) {
     const mid = ((i + 0.5) / cells) * window
@@ -381,8 +408,11 @@ export const terminalBar = (
     if (mid < usedEnd) cell = { text: '█', color: bounds.find(b => mid < b.end)?.color }
     else if (i === 0 && usedEnd > 0) cell = { text: '▌', color: bounds[0]?.color }
     else if (i === compactCell) cell = { text: '│', color: 'text' }
+    else if (i === clearCell) cell = { text: '│', color: 'error' }
     else if (i === dumbCell) cell = { text: '│', color: 'claude' }
     else if (compactsAt !== undefined && mid >= compactsAt) cell = { text: '╱', isDim: true }
+    // Undimmed, so the stretch past it reads red rather than grey.
+    else if (mid >= clearFrom) cell = { text: '░', color: 'error' }
     else if (mid >= dumbFrom) cell = { text: '░', color: 'claude', isDim: true }
     else cell = { text: '░', color: 'subtle' }
     const last = runs[runs.length - 1]
@@ -545,6 +575,7 @@ const hasRun = (e: { agentId?: string }, ran: { deny?: string; isError?: boolean
 export const register: Register = (on, options) => {
   const thresholds = thresholdsFrom(options)
   const dumbTokens = dumbTokensFrom(options)
+  const compactTokens = compactTokensFrom(options)
   const layout = layoutFrom(options)
   const isPlanOn = isOptionOn(options?.planProgress)
 
@@ -773,9 +804,10 @@ export const register: Register = (on, options) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const window = snap.windowTokens || 1
     const percent = percentOf(snap.usedTokens, window)
-    const marks = thresholdsFor(thresholds, window, dumbTokens)
+    const marks = thresholdsFor(thresholds, window, dumbTokens, compactTokens)
     const zone = zoneOf(percent, marks)
     const dumbFrom = (window * marks.dumb) / 100
+    const compactFrom = (window * marks.compact) / 100
     const used = snap.segments
       .filter(s => s.kind === 'used' && s.tokens > 0)
       .map((segment, index) => ({ segment, color: colorOf(segment, index) }))
@@ -832,7 +864,7 @@ export const register: Register = (on, options) => {
 
         return (
           <Text>
-            {terminalBar(cells, parts, window, dumbFrom, snap.compactsAt).map(run => (
+            {terminalBar(cells, parts, window, dumbFrom, compactFrom, snap.compactsAt).map(run => (
               <Text color={run.color} dimColor={run.isDim}>
                 {run.text}
               </Text>
@@ -845,7 +877,7 @@ export const register: Register = (on, options) => {
       return (
         <Svg
           height={8 * (1 + 2 * pad)}
-          source={contextBarSvg(parts, window, dumbFrom, snap.compactsAt, pad)}
+          source={contextBarSvg(parts, window, dumbFrom, compactFrom, snap.compactsAt, pad)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -927,7 +959,7 @@ export const register: Register = (on, options) => {
       if (e.surface === 'terminal') {
         return (
           <Text>
-            {terminalBar(cells, isComposed ? composed : zoneFill(zone.color), window, dumbFrom, snap.compactsAt).map(run => (
+            {terminalBar(cells, isComposed ? composed : zoneFill(zone.color), window, dumbFrom, compactFrom, snap.compactsAt).map(run => (
               <Text color={run.color} dimColor={run.isDim}>
                 {run.text}
               </Text>
@@ -941,7 +973,7 @@ export const register: Register = (on, options) => {
         <Svg
           width={px}
           height={8}
-          source={contextBarSvg(isComposed ? composed : zoneFill(zonePaint(zone.id)), window, dumbFrom, snap.compactsAt)}
+          source={contextBarSvg(isComposed ? composed : zoneFill(zonePaint(zone.id)), window, dumbFrom, compactFrom, snap.compactsAt)}
           alt={`Context ${formatTokens(snap.usedTokens)} of ${formatTokens(window)}, ${zone.label}`}
         />
       )
@@ -1158,13 +1190,13 @@ export const register: Register = (on, options) => {
     // The runway, top right: the fill a turn adds and the turns left to the
     // next mark; before a turn has been measured, the tokens left to it.
     // The rate goes first when the row is too narrow for both.
-    const runway = runwayOf(deltas, snap.usedTokens, dumbFrom, snap.compactsAt)
+    const runway = runwayOf(deltas, snap.usedTokens, dumbFrom, compactFrom, snap.compactsAt)
     const rate = runway === null ? '' : `+${formatTokens(runway.perTurn)}/turn`
     const turnsLeft = runway?.turns === undefined ? '' : `~${runway.turns} ${runway.turns === 1 ? 'turn' : 'turns'}`
     const headLeft = `◔ ${formatTokens(snap.usedTokens)} / ${formatTokens(window)} · ${Math.round(percent)}%  ● ${zone.label}`
     const headRoom = (e.props.bodyColumns ?? 80) - 4 - headLeft.length - 4
     const showRate = turnsLeft === '' || `${rate} · ${turnsLeft} to ${runway?.to}`.length <= headRoom
-    const nextMark = snap.usedTokens < dumbFrom ? { at: dumbFrom, to: 'dumb zone' } : snap.compactsAt === undefined ? undefined : { at: snap.compactsAt, to: 'auto-compact' }
+    const nextMark = nextMarkOf(snap.usedTokens, dumbFrom, compactFrom, snap.compactsAt)
     const runwayNote =
       runway === null ? (
         nextMark === undefined ? null : (
@@ -1332,6 +1364,16 @@ export const register: Register = (on, options) => {
               ({Math.round(dumbLow)}–{Math.round(marks.dumb)}%)
             </Text>
           </Box>
+          {(snap.compactsAt === undefined || compactFrom < snap.compactsAt) && (
+            <Box marginRight={2}>
+              <Text color="error" dimColor>
+                ░{' '}
+              </Text>
+              <Text dimColor>Compact or clear by </Text>
+              <Text>{formatTokens(compactFrom)}</Text>
+              <Text dimColor> ({Math.round(marks.compact)}%)</Text>
+            </Box>
+          )}
           {buffer !== undefined && (
             <Box>
               <Text dimColor>╱ Buffer </Text>

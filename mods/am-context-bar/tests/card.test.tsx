@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { contextBarSvg, thresholdsFor, dumbTokensFrom, DEFAULT_THRESHOLDS, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, longLabel, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
+import { compactTokensFrom, contextBarSvg, thresholdsFor, dumbTokensFrom, DEFAULT_THRESHOLDS, fitExpanded, formatReset, parseStatus, recordTurn, runwayOf, layoutFrom, legendOf, longLabel, modelLabel, parseLayout, formatTokens, shortLabel, terminalBar, thresholdsFrom, zoneOf } from '../hooks/register'
 import type { Growth } from '../types'
 
 const category = (name: string, tokens: number, kind: 'used' | 'free' | 'buffer' | 'deferred' = 'used') => ({
@@ -87,19 +87,28 @@ test('zones follow the thresholds', async () => {
   expect(zoneOf(42).label).toBe('Nearing dumb zone')
   expect(zoneOf(50).label).toBe('Dumb zone')
   expect(zoneOf(64).color).toBe('claude')
-  expect(zoneOf(91).label).toBe('Compact soon')
-  const t = thresholdsFrom({ nearingAt: 20, dumbZoneAt: 40, compactSoonAt: 70 })
+  expect(zoneOf(72).label).toBe('Compact or clear')
+  const t = thresholdsFrom({ nearingAt: 20, dumbZoneAt: 40, compactNowAt: 60 })
   expect(zoneOf(45, t).label).toBe('Dumb zone')
   // Out-of-order settings fall back to the defaults.
   expect(thresholdsFrom({ nearingAt: 60, dumbZoneAt: 40 }).dumb).toBe(50)
   // Past 250k tokens a large window is in the dumb zone whatever its percentage.
   expect(thresholdsFor(DEFAULT_THRESHOLDS, 200_000, 250_000)).toEqual(DEFAULT_THRESHOLDS)
   const big = thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 250_000)
-  expect(big).toEqual({ nearing: 17.5, dumb: 25, compact: 85 })
+  expect(big).toEqual({ nearing: 17.5, dumb: 25, compact: 70 })
   expect(zoneOf(11, big).label).toBe('Plenty of room')
   expect(zoneOf(20, big).label).toBe('Nearing dumb zone')
   expect(zoneOf(30, big).label).toBe('Dumb zone')
   expect(thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 0)).toEqual(DEFAULT_THRESHOLDS)
+  // Past 400k tokens it is time to compact or clear; a 200K window goes by 70%.
+  expect(thresholdsFor(DEFAULT_THRESHOLDS, 200_000, 250_000, 400_000)).toEqual(DEFAULT_THRESHOLDS)
+  const capped = thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 250_000, 400_000)
+  expect(capped).toEqual({ nearing: 17.5, dumb: 25, compact: 40 })
+  expect(zoneOf(41, capped).label).toBe('Compact or clear')
+  // A cap at or below the dumb zone's start is left out.
+  expect(thresholdsFor(DEFAULT_THRESHOLDS, 1_000_000, 0, 400_000).compact).toBe(70)
+  expect(compactTokensFrom(undefined)).toBe(400_000)
+  expect(compactTokensFrom({ compactNowTokens: 0 })).toBe(0)
   expect(dumbTokensFrom(undefined)).toBe(250_000)
   expect(dumbTokensFrom({ dumbZoneTokens: 0 })).toBe(0)
   expect(dumbTokensFrom({ dumbZoneTokens: '400000' })).toBe(400_000)
@@ -114,17 +123,23 @@ test('formats labels and bars', async () => {
   expect(shortLabel('MCP server instructions')).toBe('MCP instr.')
   expect(longLabel('MCP server instructions')).toBe('MCP instructions')
   expect(longLabel('custom agents')).toBe('Agents')
-  const runs = terminalBar(20, [{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000)
+  const runs = terminalBar(20, [{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 700_000, 950_000)
   expect(runs.map(r => r.text).join('')).toHaveLength(20)
   expect(runs[0]).toEqual({ text: '██', color: '#2F9C8F' })
   expect(runs.some(r => r.color === 'claude' && r.text === '│')).toBe(true)
-  const svg = contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000)
+  // The compact-or-clear mark leads the red stretch past it.
+  expect(runs.some(r => r.color === 'error' && r.text.startsWith('│░') && r.isDim === undefined)).toBe(true)
+  // A compact-or-clear mark past auto-compact isn't drawn.
+  expect(terminalBar(20, [], 1_000_000, 500_000, 960_000, 950_000).some(r => r.color === 'error')).toBe(false)
+  const svg = contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 700_000, 950_000)
   expect(svg).toMatch(/prefers-color-scheme:dark/)
-  expect(contextBarSvg([{ tokens: 640_000, color: 'zone:dumb' }], 1_000_000, 500_000)).toMatch(/<rect x="0.00" width="640.00" height="12" class="z-dumb"\/>/)
-  expect(svg).toMatch(/class="d" x="500.00"/)
+  expect(contextBarSvg([{ tokens: 640_000, color: 'zone:dumb' }], 1_000_000, 500_000, 700_000)).toMatch(/<rect x="0.00" width="640.00" height="12" class="z-dumb"\/>/)
+  expect(svg).toMatch(/class="d" x="500.00" width="200.00"/)
+  expect(svg).toMatch(/class="e" x="700.00" width="250.00"/)
+  expect(svg).toMatch(/class="z-compact" x="698.50"/)
   expect(svg).toMatch(/viewBox="0 0 1000 12"/)
   // Padding adds clear space above and below without moving the bar.
-  expect(contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 950_000, 0.75)).toMatch(/height="30" viewBox="0 -9 1000 30"/)
+  expect(contextBarSvg([{ tokens: 100_000, color: '#2F9C8F' }], 1_000_000, 500_000, 700_000, 950_000, 0.75)).toMatch(/height="30" viewBox="0 -9 1000 30"/)
 })
 
 test('the collapsed legend groups, drops small parts and pins Messages last', async () => {
@@ -395,11 +410,12 @@ test('the runway averages recent turns and counts the turns to the next mark', a
   const start: Growth = { lastTokens: 0, deltas: [] }
   expect([1, 2, 3, 4, 5, 6, 7].reduce((acc, n) => recordTurn(acc, n * 1000), start).deltas).toHaveLength(5)
 
-  expect(runwayOf([], 90_000, 500_000, 950_000)).toBeNull()
-  expect(runwayOf([10_000, 12_000], 90_000, 500_000, 950_000)).toEqual({ perTurn: 11_000, turns: 38, to: 'dumb zone' })
-  expect(runwayOf([10_000], 600_000, 500_000, 950_000)).toEqual({ perTurn: 10_000, turns: 35, to: 'auto-compact' })
-  expect(runwayOf([10_000], 960_000, 500_000, 950_000)).toEqual({ perTurn: 10_000 })
-  expect(runwayOf([10_000], 499_000, 500_000)).toEqual({ perTurn: 10_000, turns: 1, to: 'dumb zone' })
+  expect(runwayOf([], 90_000, 500_000, 700_000, 950_000)).toBeNull()
+  expect(runwayOf([10_000, 12_000], 90_000, 500_000, 700_000, 950_000)).toEqual({ perTurn: 11_000, turns: 38, to: 'dumb zone' })
+  expect(runwayOf([10_000], 600_000, 500_000, 700_000, 950_000)).toEqual({ perTurn: 10_000, turns: 10, to: 'compact or clear' })
+  expect(runwayOf([10_000], 800_000, 500_000, 700_000, 950_000)).toEqual({ perTurn: 10_000, turns: 15, to: 'auto-compact' })
+  expect(runwayOf([10_000], 960_000, 500_000, 700_000, 950_000)).toEqual({ perTurn: 10_000 })
+  expect(runwayOf([10_000], 499_000, 500_000, 700_000)).toEqual({ perTurn: 10_000, turns: 1, to: 'dumb zone' })
 })
 
 test('the expanded card shows the runway once turns are measured', async ($, on) => {

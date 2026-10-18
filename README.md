@@ -18,7 +18,7 @@
 
 | Mod | What it does | Command |
 | --- | --- | --- |
-| [**am-context-bar**](#am-context-bar) | A card above the prompt that shows how full the context window is, what is filling it, how many turns you have left before quality drops, how far along a plan you are, your plan limits, and your git status. | `/am-context-bar` |
+| [**am-context-bar**](#am-context-bar) | A card above the prompt that shows how full the context window is, what is filling it, how many turns you have left before quality drops, how far along a plan you are, your usage limits, and your git status. | `/am-context-bar` |
 
 ---
 
@@ -29,13 +29,13 @@ Long sessions slow down and get worse well before the context window is full. **
 ### At a glance
 
 - **How full the context is**: tokens used out of the window, and the percentage, coloured by zone (green, yellow, orange, red).
-- **The dumb zone**: the bar marks where the dumb zone starts (where answers tend to get worse: 50% of the window, or 250k tokens on large windows), where it's time to compact or `/clear` (70%, or 400k tokens), and where auto-compact kicks in.
+- **Where quality drops**: the bar marks where the dumb zone starts and answers tend to get worse (at 50% of the window, or by 250k tokens on large windows), where it's time to compact or `/clear` (at 70%, or by 400k tokens), and where auto-compact kicks in.
 - **What's filling it**: tools, MCP servers, skills, the system prompt, memory files and your messages, each in its own colour.
 - **Runway**: how many tokens each turn adds and how many turns that leaves before the next mark.
-- **Plan limits**: session and weekly usage, and when they reset.
+- **Usage limits**: session and weekly usage, and when they reset.
 - **Session details**: the model, the thinking effort, and how many times the session has been compacted.
 - **Git**: the branch, uncommitted changes, and commits to push or pull.
-- **Plan progress**: for a plan with phases, approved in plan mode, written in the chat, or read from a file or doc, which phase you're on, how many tasks are open, and any earlier phase left with tasks unfinished. No setup needed.
+- **Plan progress**: which phase of a plan you're on, how many tasks are open, and any earlier phase left with tasks unfinished. It follows plans approved in plan mode, written in the chat, or read from a file or doc, with no setup.
 - **Fits in**: three collapsed layouts, theme colours that follow light and dark themes, and your terminal's own background.
 
 ### Requirements
@@ -98,7 +98,7 @@ Everything on one line. The bar is a single fill in the zone's colour, so it tur
 | `Resets 1h 5m` | When the session limit resets. |
 | `↻ 0` | How many times this session has been compacted. |
 | `⎇ main · ● 4 uncommitted changes ↑3` | The branch, then `● 4 uncommitted changes` (staged, unstaged and untracked) or `✓ Nothing to commit` on a clean tree. `↑3` counts commits to push and `↓1` commits to pull, when the branch has an upstream. |
-| `▤ Phase 2/3 Cart and discounts · 3 open` | With a plan, the phase you're on and its open tasks; `⚠ P1: 1 left` on the right flags an earlier phase with tasks still open. In V3 it shrinks to `▤ 2/3 ⚠1`. See [Plan progress](#plan-progress). |
+| `▤ Phase 2/3 Cart and discounts · 3 open` | With a plan, the phase you're on and the plan's open tasks; `⚠ P1: 1 left` on the right flags an earlier phase with tasks still open. In V3 it shrinks to `▤ 2/3 ⚠1`. See [Plan progress](#plan-progress). |
 | `│ ▾` | Expands the card. |
 
 ---
@@ -113,12 +113,11 @@ From top to bottom:
 
 1. **Count and runway.** The runway is the average a turn added over the last five turns, and how many turns like that are left before the next mark: the dumb zone, then where to compact or clear, then auto-compact. Until a turn has been measured, it shows the tokens left to the next mark instead (`391k to dumb zone`). It starts over after a compaction or a `/clear`.
 2. **The bar**, split by category, with the dumb zone shaded, where to compact or clear marked in red, and auto-compact marked.
-3. **The legend**: tokens used, free space, where the dumb zone starts (a range just below it, since quality tails off rather than dropping at one point: `200k–250k (20–25%)` on a 1M window), where to compact or clear (`400k (40%)`), and the buffer reserved for auto-compact.
+3. **The legend**: tokens used, free space, where the dumb zone starts (a range just below it, since quality tails off rather than dropping at one point: `200k–250k (20–25%)` on a 1M window), where to compact or clear (`400k (40%)` on a 1M window), and the buffer reserved for auto-compact.
 4. **What's using it**: every category, largest first, with a bar relative to the largest, its tokens and its share of what's used.
-5. **Limits**: session (five-hour) and weekly usage, green below 50%, yellow from 50%, orange from 80% and red from 95%, with their reset times.
-6. **Session**: the model, the thinking effort and the number of compactions, with the git status at the right.
-
-7. **Plan**, when there is one: a row per phase. See [Plan progress](#plan-progress).
+5. **Plan**, when there is one: a row per phase. See [Plan progress](#plan-progress).
+6. **Limits**: session (five-hour) and weekly usage, green below 50%, yellow from 50%, orange from 80% and red from 95%, with their reset times.
+7. **Session**: the model, the thinking effort and the number of compactions, with the git status at the right.
 
 The expanded card fits the space above the prompt instead of scrolling. On a short terminal it drops its blank spacer lines first, then the blank line above the card, then shrinks the plan to its one-line summary, then folds the smallest categories into one **Other** row.
 
@@ -136,7 +135,7 @@ Long plans get split into phases, and halfway through it's easy to lose track of
 ▤ Phase 2/3 Rules in PHP · 3 open                      ⚠ P1: 1 left
 ```
 
-The phase you're on, out of how many; the tasks still open; and, on the right, any earlier phase left with tasks unfinished. In the one-row layout it shrinks to `▤ 2/3 ⚠1`. When every task is done it reads `✓ Plan done`.
+The phase you're on, out of how many; the plan's tasks still open; and, on the right, any earlier phase left with tasks unfinished. In the one-row layout it shrinks to `▤ 2/3 ⚠1`. When every task is done it reads `✓ Plan done`.
 
 **Expanded**, a row per phase:
 
@@ -155,7 +154,7 @@ With no tasks, a phase shows `now` or `done` instead of a count, and the collaps
 
 It works on its own, with nothing to add to your `CLAUDE.md`:
 
-1. **The phases come from the plan.** When you approve a plan, the card reads its headings. A plan Claude writes in its answer instead of plan mode counts too, when two or more of its headings name phases (`## Phase 1: …`, `## Fase 2 — …`). An answer with numbered headings alone isn't taken for a plan. So does a plan Claude reads: a file you name with `@` (`lee @PLAN.md completo`), a file it opens (`Read`, `cat`), or a doc another tool fetches. With no plan on the card yet, any document with two or more phase headings is taken as the plan. Once the card follows one, another document replaces it only when your prompt asked Claude to read something (`lee este documento completo`, `read the roadmap`, `@notes.md`), or the document calls itself a plan, in its file name (`PLAN.md`) or its title (`# Plan: …`); a file with phases Claude opens on its own, for something else, leaves the card alone. The card takes the whole file, even when Claude read only one page of it. It finds phases in any language (`## Phase 1`, `## Fase 2 — …`, `## Étape 3`, `## Stage B`, `## Milestone 1`…), or, when no heading names a phase, numbered headings (`## 1. …`, `## 2. …`). A plan with fewer than two phases isn't tracked.
+1. **The phases come from the plan.** When you approve a plan, the card reads its headings. A plan Claude writes in its answer instead of plan mode counts too, when two or more of its headings name phases (`## Phase 1: …`, `## Fase 2 — …`); an answer with numbered headings alone isn't taken for a plan. A plan Claude reads counts as well: a file you name with `@` (`lee @PLAN.md completo`), a file it opens (`Read`, `cat`), or a doc another tool fetches. With no plan on the card yet, any document with two or more phase headings is taken as the plan. Once the card follows one, another document replaces it only when your prompt asked Claude to read something (`lee este documento completo`, `read the roadmap`, `@notes.md`), or the document calls itself a plan, in its file name (`PLAN.md`) or its title (`# Plan: …`); a file with phases Claude opens on its own, for something else, leaves the card alone. The card takes the whole file, even when Claude read only one page of it. It finds phases in any language (`## Phase 1`, `## Fase 2 — …`, `## Étape 3`, `## Stage B`, `## Milestone 1`…), or, when no heading names a phase, numbered headings (`## 1. …`, `## 2. …`). A plan with fewer than two phases isn't tracked.
 2. **The tasks come from Claude's task list** (`TaskCreate` and `TaskUpdate`, or `TodoWrite`), as Claude creates and finishes them.
 3. **A tag ties each task to its phase.** Claude starts each task with its phase tag, `P1:`, `P2:`, … (`P2.3:` for step 2.3). The card also accepts `F2:`, `Phase 2:`, `Fase 2:`, `§2:` and `[P2]`.
 4. **Without tasks, the conversation tells the phase.** Not every session has the task tools, and small plans often go without tasks. Then the card goes by what's said. When you ask for a phase (`go on with phase 2`, `sigue con la fase 2`, `do P3`), that phase is in progress. When Claude or you say a phase is finished (`Phase 1 is done`, `La fase 2 está terminada`, `Étape 3 terminée`, `Phase 2 ✓`), it's done, and the card moves on to the next. The plan's own headings count too: one marked done (`## Fase 1 — Diseño ✅`, `(hecha)`, `(done)`) is done, and one marked at work (`## Fase 3 — Pruebas ⏳`, `(in progress)`, `(en curso)`) is in progress. Tasks win where a phase has them.
@@ -202,7 +201,7 @@ The count, the status pill and the V3 bar change colour with how full the window
 
 Quality tails off with the tokens in context, not with how full the window is, so on large windows the dumb zone starts by 250k tokens at the latest, and the yellow mark keeps its distance below it. Nobody has an official number for this. Anthropic describes [context rot](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) as a gradient, not a cliff, and developers report the slide on 1M windows somewhere between 120k and 250k tokens. 250k is the late end of that range: lower it if you see it sooner, or set it to `0` to go by percentage alone.
 
-Past the dumb zone answers keep sliding, and the red zone is where to stop and compact or `/clear` rather than wait for auto-compact, which on a large window comes far later. Developers put that point at 120k–150k tokens on 200K windows and around 400k–500k on 1M windows ([1](https://github.com/anthropics/claude-code/issues/34685), [2](https://github.com/anthropics/claude-code/issues/35296), [3](https://www.albertsikkema.com/ai/development/tools/2026/04/23/smaller-context-window-better-claude-code.html)), so it starts at the lower of 70% and 400k tokens. It's marked only when it comes before auto-compact.
+Past the dumb zone, answers keep sliding, and the red zone is where to stop and compact or `/clear` rather than wait for auto-compact, which on a large window comes far later. Developers put that point at 120k–150k tokens on 200K windows and around 400k–500k on 1M windows ([1](https://github.com/anthropics/claude-code/issues/34685), [2](https://github.com/anthropics/claude-code/issues/35296), [3](https://www.albertsikkema.com/ai/development/tools/2026/04/23/smaller-context-window-better-claude-code.html)), so it starts at the lower of 70% and 400k tokens. It's marked only when it comes before auto-compact.
 
 All four colours come from your theme, so they stay readable in light and dark themes. The cut-offs are [settings](#settings).
 
@@ -231,7 +230,7 @@ Change these in **`/config`**, under am-context-bar:
 | Compact or clear at (%) | `compactNowAt` | `70` | Where it's time to compact or `/clear`: marked on the bar, and the count turns red. |
 | Compact or clear by (tokens) | `compactNowTokens` | `400000` | On large windows it's time to compact or clear here at the latest, whatever the percentage. `0` turns it off. |
 | Shade past compact or clear | `compactShading` | `false` | Shades the bar red from where to compact or clear up to auto-compact. Off, only the red mark shows it. |
-| Plan progress | `planProgress` | `true` | Follows the phases of a plan, approved or written in the chat, and asks Claude to tag tasks with their phase. |
+| Plan progress | `planProgress` | `true` | Follows the phases of a plan, approved, written in the chat or read from a file, and asks Claude to tag tasks with their phase. |
 
 The three cut-offs must go up in order (`nearingAt` < `dumbZoneAt` < `compactNowAt`). If they don't, the card falls back to the defaults. The token caps should too (`dumbZoneTokens` < `compactNowTokens`): a compact-or-clear cap at or below where the dumb zone starts is left out, and that mark goes by percentage alone.
 
